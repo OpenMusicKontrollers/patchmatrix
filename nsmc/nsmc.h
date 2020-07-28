@@ -325,6 +325,9 @@ _reply_server_announce(LV2_OSC_Reader *reader, LV2_OSC_Arg *arg,
 	const char *manager = _arg_to_string(reader, &arg);
 	const char *capabilities = _arg_to_string(reader, &arg);
 
+	(void)message; //FIXME
+	(void)manager; //FIXME
+
 	char *caps = alloca(strlen(capabilities) + 1);
 	strcpy(caps, capabilities);
 
