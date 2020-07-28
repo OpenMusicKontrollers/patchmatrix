@@ -121,6 +121,9 @@ NSMC_API void
 nsmc_free(nsmc_t *nsm);
 
 NSMC_API void
+nsmc_pollin(nsmc_t *nsm, int timeout_ms);
+
+NSMC_API void
 nsmc_run(nsmc_t *nsm);
 
 NSMC_API int
@@ -665,7 +668,7 @@ nsmc_new(const char *call, const char *exe, const char *fallback_path,
 	char *nsm_url = getenv("NSM_URL");
 	if(nsm_url)
 	{
-		nsm->connectionless = !strncmp(nsm->url, "osc.udp", 7) ? true : false;
+		nsm->connectionless = !strncmp(nsm_url, "osc.udp", 7) ? true : false;
 
 		nsm->url = strdup(nsm_url);
 		if(!nsm->url)
@@ -766,18 +769,17 @@ nsmc_free(nsmc_t *nsm)
 }
 
 NSMC_API void
-nsmc_run(nsmc_t *nsm)
+nsmc_pollin(nsmc_t *nsm, int timeout_ms)
 {
-	if(!nsm || !nsm->tx)
+	if(!nsm || !nsm->rx)
 	{
 		return;
 	}
 
-	const LV2_OSC_Enum ev = lv2_osc_stream_run(&nsm->stream);
+	const LV2_OSC_Enum ev = lv2_osc_stream_pollin(&nsm->stream, timeout_ms);
 
 	if(ev & LV2_OSC_ERR)
 	{
-		fprintf(stderr, "%s: %s\n", __func__, strerror(ev & LV2_OSC_ERR));
 		nsm->connected = false;
 	}
 
@@ -804,6 +806,12 @@ nsmc_run(nsmc_t *nsm)
 			varchunk_read_advance(nsm->rx);
 		}
 	}
+}
+
+NSMC_API void
+nsmc_run(nsmc_t *nsm)
+{
+	return nsmc_pollin(nsm, 0);
 }
 
 NSMC_API int
