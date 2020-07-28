@@ -20,7 +20,7 @@
 #include <patchmatrix_nk.h>
 
 #define NSMC_IMPLEMENTATION
-#include "nsmc/nsmc.h"
+#include <nsmc/nsmc.h>
 
 static cJSON *
 _create_session(app_t *app)

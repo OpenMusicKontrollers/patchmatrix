@@ -44,6 +44,8 @@
 
 #include <varchunk.h>
 
+#include <nsmc/nsmc.h>
+
 #define NK_PUGL_API
 #include <nk_pugl/nk_pugl.h>
 
@@ -315,6 +317,7 @@ struct _app_t {
 	struct nk_rect contextbounds;
 
 	cJSON *root;
+	nsmc_t *nsm;
 };
 
 #define HASH_FOREACH(hash, itr) \

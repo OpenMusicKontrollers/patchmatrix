@@ -22,7 +22,7 @@
 #include <patchmatrix.h>
 
 #define NSMC_IMPLEMENTATION
-#include "nsmc/nsmc.h"
+#include <nsmc/nsmc.h>
 
 typedef struct _mixer_app_t mixer_app_t;
 
@@ -37,6 +37,7 @@ struct _mixer_app_t {
 	int16_t data [0x10];
 
 	mixer_shm_t *shm;	
+	nsmc_t *nsm;
 };
 
 static atomic_bool closed = ATOMIC_VAR_INIT(false);

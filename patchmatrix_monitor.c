@@ -22,7 +22,7 @@
 #include <patchmatrix.h>
 
 #define NSMC_IMPLEMENTATION
-#include "nsmc/nsmc.h"
+#include <nsmc/nsmc.h>
 
 typedef struct _monitor_app_t monitor_app_t;
 
@@ -41,6 +41,7 @@ struct _monitor_app_t {
 	port_type_t type;
 
 	monitor_shm_t *shm;	
+	nsmc_t *nsm;
 };
 
 static atomic_bool closed = ATOMIC_VAR_INIT(false);
