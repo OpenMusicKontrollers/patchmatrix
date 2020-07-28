@@ -21,6 +21,9 @@
 
 #include <patchmatrix.h>
 
+#define NSMC_IMPLEMENTATION
+#include "nsmc/nsmc.h"
+
 typedef struct _mixer_app_t mixer_app_t;
 
 struct _mixer_app_t {

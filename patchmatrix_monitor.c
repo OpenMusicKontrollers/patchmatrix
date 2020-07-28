@@ -21,6 +21,9 @@
 
 #include <patchmatrix.h>
 
+#define NSMC_IMPLEMENTATION
+#include "nsmc/nsmc.h"
+
 typedef struct _monitor_app_t monitor_app_t;
 
 struct _monitor_app_t {
