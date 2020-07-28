@@ -52,6 +52,9 @@ i686-linux-gnu:
 arm-linux-gnueabihf:
   <<: *arm_linux_definition
 
+aarch64-linux-gnu:
+  <<: *arm_linux_definition
+
 x86_64-w64-mingw32:
   <<: *universal_w64_definition
 
