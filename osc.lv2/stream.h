@@ -19,6 +19,7 @@
 #define LV2_OSC_STREAM_H
 
 #include <stdbool.h>
+#include <stdlib.h>
 #include <string.h>
 #if !defined(_WIN32)
 #	include <arpa/inet.h>
@@ -28,11 +29,13 @@
 #	include <netinet/in.h>
 #	include <netdb.h>
 #	include <termios.h>
+#	include <limits.h>
 #endif
 #include <sys/types.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <unistd.h>
+#include <poll.h>
 
 #include <osc.lv2/osc.h>
 
@@ -71,7 +74,6 @@ typedef struct _LV2_OSC_Stream LV2_OSC_Stream;
 struct _LV2_OSC_Address {
 	socklen_t len;
 	union {
-		struct sockaddr in;
 		struct sockaddr_in in4;
 		struct sockaddr_in6 in6;
 	};
@@ -101,6 +103,7 @@ struct _LV2_OSC_Stream {
 	uint8_t tx_buf [0x4000];
 	uint8_t rx_buf [0x4000];
 	size_t rx_off;
+	char url [PATH_MAX];
 };
 
 typedef enum _LV2_OSC_Enum {
@@ -160,14 +163,36 @@ _lv2_osc_stream_interface_attribs(int fd, int speed)
 
 #define LV2_OSC_STREAM_ERRNO(EV, ERRNO) ( (EV & (~LV2_OSC_ERR)) | (ERRNO) )
 
+static void
+_close_socket(int *fd)
+{
+	if(fd)
+	{
+		if(*fd >= 0)
+		{
+			close(*fd);
+		}
+
+		*fd = -1;
+	}
+}
+
 static int
-lv2_osc_stream_init(LV2_OSC_Stream *stream, const char *url,
-	const LV2_OSC_Driver *driv, void *data)
+lv2_osc_stream_deinit(LV2_OSC_Stream *stream)
+{
+	_close_socket(&stream->fd);
+	_close_socket(&stream->sock);
+
+	return 0;
+}
+
+static int
+_lv2_osc_stream_reinit(LV2_OSC_Stream *stream)
 {
 	LV2_OSC_Enum ev = LV2_OSC_NONE;
-	memset(stream, 0x0, sizeof(LV2_OSC_Stream));
+	lv2_osc_stream_deinit(stream);
 
-	char *dup = strdup(url);
+	char *dup = strdup(stream->url);
 	if(!dup)
 	{
 		ev = LV2_OSC_STREAM_ERRNO(ev, ENOMEM);
@@ -226,9 +251,6 @@ lv2_osc_stream_init(LV2_OSC_Stream *stream, const char *url,
 		ev = LV2_OSC_STREAM_ERRNO(ev, EDESTADDRREQ);
 		goto fail;
 	}
-
-	stream->driv = driv;
-	stream->data = data;
 
 	if(stream->serial)
 	{
@@ -332,16 +354,24 @@ lv2_osc_stream_init(LV2_OSC_Stream *stream, const char *url,
 
 		const int sendbuff = LV2_OSC_STREAM_SNDBUF;
 		const int recvbuff = LV2_OSC_STREAM_RCVBUF;
+		const int reuseaddr = 1;
 
 		if(setsockopt(stream->sock, SOL_SOCKET,
-			SO_SNDBUF, &sendbuff, sizeof(int))== -1)
+			SO_SNDBUF, &sendbuff, sizeof(sendbuff)) == -1)
 		{
 			ev = LV2_OSC_STREAM_ERRNO(ev, errno);
 			goto fail;
 		}
 
 		if(setsockopt(stream->sock, SOL_SOCKET,
-			SO_RCVBUF, &recvbuff, sizeof(int))== -1)
+			SO_RCVBUF, &recvbuff, sizeof(recvbuff)) == -1)
+		{
+			ev = LV2_OSC_STREAM_ERRNO(ev, errno);
+			goto fail;
+		}
+
+		if(setsockopt(stream->sock, SOL_SOCKET,
+			SO_REUSEADDR, &reuseaddr, sizeof(reuseaddr)) == -1)
 		{
 			ev = LV2_OSC_STREAM_ERRNO(ev, errno);
 			goto fail;
@@ -371,12 +401,13 @@ lv2_osc_stream_init(LV2_OSC_Stream *stream, const char *url,
 				}
 
 				stream->self.len = res->ai_addrlen;
-				stream->self.in = *res->ai_addr;
+				memcpy(&stream->self.in4, res->ai_addr, res->ai_addrlen);
 				stream->self.in4.sin_addr.s_addr = htonl(INADDR_ANY);
 
 				freeaddrinfo(res);
 
-				if(bind(stream->sock, &stream->self.in, stream->self.len) != 0)
+				if(bind(stream->sock, (struct sockaddr *)&stream->self.in4,
+					stream->self.len) != 0)
 				{
 					ev = LV2_OSC_STREAM_ERRNO(ev, errno);
 					goto fail;
@@ -389,7 +420,8 @@ lv2_osc_stream_init(LV2_OSC_Stream *stream, const char *url,
 				stream->self.in4.sin_port = htons(0);
 				stream->self.in4.sin_addr.s_addr = htonl(INADDR_ANY);
 
-				if(bind(stream->sock, &stream->self.in, stream->self.len) != 0)
+				if(bind(stream->sock, (struct sockaddr *)&stream->self.in4,
+					stream->self.len) != 0)
 				{
 					ev = LV2_OSC_STREAM_ERRNO(ev, errno);
 					goto fail;
@@ -415,7 +447,7 @@ lv2_osc_stream_init(LV2_OSC_Stream *stream, const char *url,
 				}
 
 				stream->peer.len = res->ai_addrlen;
-				stream->peer.in = *res->ai_addr;
+				memcpy(&stream->peer.in4, res->ai_addr, res->ai_addrlen);
 
 				freeaddrinfo(res);
 			}
@@ -438,14 +470,14 @@ lv2_osc_stream_init(LV2_OSC_Stream *stream, const char *url,
 				const int flag = 1;
 
 				if(setsockopt(stream->sock, stream->protocol,
-					TCP_NODELAY, &flag, sizeof(int)) != 0)
+					TCP_NODELAY, &flag, sizeof(flag)) != 0)
 				{
 					ev = LV2_OSC_STREAM_ERRNO(ev, errno);
 					goto fail;
 				}
 
 				if(setsockopt(stream->sock, SOL_SOCKET,
-					SO_KEEPALIVE, &flag, sizeof(int)) != 0)
+					SO_KEEPALIVE, &flag, sizeof(flag)) != 0)
 				{
 					ev = LV2_OSC_STREAM_ERRNO(ev, errno);
 					goto fail;
@@ -461,7 +493,8 @@ lv2_osc_stream_init(LV2_OSC_Stream *stream, const char *url,
 				}
 				else // client
 				{
-					if(connect(stream->sock, &stream->peer.in, stream->peer.len) == 0)
+					if(connect(stream->sock, (struct sockaddr *)&stream->peer.in4,
+						stream->peer.len) == 0)
 					{
 						stream->connected = true;
 					}
@@ -497,7 +530,7 @@ lv2_osc_stream_init(LV2_OSC_Stream *stream, const char *url,
 				}
 
 				stream->self.len = res->ai_addrlen;
-				stream->self.in = *res->ai_addr;
+				memcpy(&stream->self.in6, res->ai_addr, res->ai_addrlen);
 				stream->self.in6.sin6_addr = in6addr_any;
 				if(iface)
 				{
@@ -506,7 +539,8 @@ lv2_osc_stream_init(LV2_OSC_Stream *stream, const char *url,
 
 				freeaddrinfo(res);
 
-				if(bind(stream->sock, &stream->self.in, stream->self.len) != 0)
+				if(bind(stream->sock, (struct sockaddr *)&stream->self.in6,
+					stream->self.len) != 0)
 				{
 					ev = LV2_OSC_STREAM_ERRNO(ev, errno);
 					goto fail;
@@ -523,7 +557,8 @@ lv2_osc_stream_init(LV2_OSC_Stream *stream, const char *url,
 					stream->self.in6.sin6_scope_id = if_nametoindex(iface);
 				}
 
-				if(bind(stream->sock, &stream->self.in, stream->self.len) != 0)
+				if(bind(stream->sock, (struct sockaddr *)&stream->self.in6,
+					stream->self.len) != 0)
 				{
 					ev = LV2_OSC_STREAM_ERRNO(ev, errno);
 					goto fail;
@@ -547,8 +582,10 @@ lv2_osc_stream_init(LV2_OSC_Stream *stream, const char *url,
 					ev = LV2_OSC_STREAM_ERRNO(ev, EPROTOTYPE);
 					goto fail;
 				}
+
 				stream->peer.len = res->ai_addrlen;
-				stream->peer.in = *res->ai_addr;
+				memcpy(&stream->peer.in6, res->ai_addr, res->ai_addrlen);
+
 				if(iface)
 				{
 					stream->peer.in6.sin6_scope_id = if_nametoindex(iface);
@@ -566,14 +603,14 @@ lv2_osc_stream_init(LV2_OSC_Stream *stream, const char *url,
 				const int flag = 1;
 
 				if(setsockopt(stream->sock, stream->protocol,
-					TCP_NODELAY, &flag, sizeof(int)) != 0)
+					TCP_NODELAY, &flag, sizeof(flag)) != 0)
 				{
 					ev = LV2_OSC_STREAM_ERRNO(ev, errno);
 					goto fail;
 				}
 
 				if(setsockopt(stream->sock, SOL_SOCKET,
-					SO_KEEPALIVE, &flag, sizeof(int)) != 0)
+					SO_KEEPALIVE, &flag, sizeof(flag)) != 0)
 				{
 					ev = LV2_OSC_STREAM_ERRNO(ev, errno);
 					goto fail;
@@ -589,7 +626,8 @@ lv2_osc_stream_init(LV2_OSC_Stream *stream, const char *url,
 				}
 				else // client
 				{
-					if(connect(stream->sock, &stream->peer.in, stream->peer.len) == 0)
+					if(connect(stream->sock, (struct sockaddr *)&stream->peer.in6,
+						stream->peer.len) == 0)
 					{
 						stream->connected = true;
 					}
@@ -618,13 +656,24 @@ fail:
 		free(dup);
 	}
 
-	if(stream->sock >= 0)
-	{
-		close(stream->sock);
-		stream->sock = -1;
-	}
+	_close_socket(&stream->sock);
 
 	return ev;
+}
+
+static int
+lv2_osc_stream_init(LV2_OSC_Stream *stream, const char *url,
+	const LV2_OSC_Driver *driv, void *data)
+{
+	memset(stream, 0x0, sizeof(LV2_OSC_Stream));
+
+	strncpy(stream->url, url, sizeof(stream->url) - 1);
+	stream->driv = driv;
+	stream->data = data;
+	stream->sock = -1;
+	stream->fd = -1;
+
+	return _lv2_osc_stream_reinit(stream);
 }
 
 #define SLIP_END					0300	// 0xC0, 192, indicates end of packet
@@ -743,7 +792,7 @@ _lv2_osc_stream_run_udp(LV2_OSC_Stream *stream)
 		while( (buf = stream->driv->read_req(stream->data, &tosend)) )
 		{
 			const ssize_t sent = sendto(stream->sock, buf, tosend, 0,
-				&stream->peer.in, stream->peer.len);
+				(struct sockaddr *)&stream->peer.in6, stream->peer.len);
 
 			if(sent == -1)
 			{
@@ -775,11 +824,12 @@ _lv2_osc_stream_run_udp(LV2_OSC_Stream *stream)
 		while( (buf = stream->driv->write_req(stream->data,
 			LV2_OSC_STREAM_REQBUF, &max_len)) )
 		{
-			struct sockaddr in;
+			struct sockaddr_in6 in;
 			socklen_t in_len = sizeof(in);
 
+			memset(&in, 0, in_len);
 			const ssize_t recvd = recvfrom(stream->sock, buf, max_len, 0,
-				&in, &in_len);
+				(struct sockaddr *)&in, &in_len);
 
 			if(recvd == -1)
 			{
@@ -799,7 +849,7 @@ _lv2_osc_stream_run_udp(LV2_OSC_Stream *stream)
 			}
 
 			stream->peer.len = in_len;
-			stream->peer.in = in;
+			memcpy(&stream->peer.in6, &in, in_len);
 
 			stream->driv->write_adv(stream->data, recvd);
 			ev |= LV2_OSC_RECV;
@@ -819,8 +869,9 @@ _lv2_osc_stream_run_tcp(LV2_OSC_Stream *stream)
 	{
 		if(stream->server)
 		{
-			stream->peer.len = sizeof(stream->peer.in);
-			stream->fd = accept(stream->sock, &stream->peer.in, &stream->peer.len);
+			stream->peer.len = sizeof(stream->peer.in6);
+			stream->fd = accept(stream->sock, (struct sockaddr *)&stream->peer.in6,
+				&stream->peer.len);
 
 			if(stream->fd >= 0)
 			{
@@ -834,37 +885,56 @@ _lv2_osc_stream_run_tcp(LV2_OSC_Stream *stream)
 				}
 
 				if(setsockopt(stream->fd, stream->protocol,
-					TCP_NODELAY, &flag, sizeof(int)) != 0)
+					TCP_NODELAY, &flag, sizeof(flag)) != 0)
 				{
 					ev = LV2_OSC_STREAM_ERRNO(ev, errno);
 				}
 
 				if(setsockopt(stream->sock, SOL_SOCKET,
-					SO_KEEPALIVE, &flag, sizeof(int)) != 0)
+					SO_KEEPALIVE, &flag, sizeof(flag)) != 0)
 				{
 					ev = LV2_OSC_STREAM_ERRNO(ev, errno);
 				}
 
 				if(setsockopt(stream->fd, SOL_SOCKET,
-					SO_SNDBUF, &sendbuff, sizeof(int))== -1)
+					SO_SNDBUF, &sendbuff, sizeof(sendbuff)) == -1)
 				{
 					ev = LV2_OSC_STREAM_ERRNO(ev, errno);
 				}
 
 				if(setsockopt(stream->fd, SOL_SOCKET,
-					SO_RCVBUF, &recvbuff, sizeof(int))== -1)
+					SO_RCVBUF, &recvbuff, sizeof(recvbuff)) == -1)
 				{
 					ev = LV2_OSC_STREAM_ERRNO(ev, errno);
 				}
 
 				stream->connected = true; // orderly accept
 			}
+			else
+			{
+				//ev = LV2_OSC_STREAM_ERRNO(ev, errno);
+			}
 		}
 		else
 		{
-			if(connect(stream->sock, &stream->peer.in, stream->peer.len) == 0)
+			if(stream->sock < 0)
+			{
+				ev = _lv2_osc_stream_reinit(stream);
+			}
+
+			if(connect(stream->sock, (struct sockaddr *)&stream->peer.in6,
+				stream->peer.len) == 0)
 			{
 				stream->connected = true; // orderly (re)connect
+			}
+			else
+			{
+				//if(errno == EISCONN)
+				//{
+				//	_close_socket(&stream->sock);
+				//}
+
+				//ev = LV2_OSC_STREAM_ERRNO(ev, errno);
 			}
 		}
 	}
@@ -872,11 +942,11 @@ _lv2_osc_stream_run_tcp(LV2_OSC_Stream *stream)
 	// send everything
 	if(stream->connected)
 	{
-		const int fd = stream->server
-			? stream->fd
-			: stream->sock;
+		int *fd = stream->server
+			? &stream->fd
+			: &stream->sock;
 
-		if(fd >= 0)
+		if(*fd >= 0)
 		{
 			const uint8_t *buf;
 			size_t tosend;
@@ -914,7 +984,7 @@ _lv2_osc_stream_run_tcp(LV2_OSC_Stream *stream)
 				}
 
 				const ssize_t sent = tosend
-					? send(fd, stream->tx_buf, tosend, 0)
+					? send(*fd, stream->tx_buf, tosend, 0)
 					: 0;
 
 				if(sent == -1)
@@ -924,13 +994,8 @@ _lv2_osc_stream_run_tcp(LV2_OSC_Stream *stream)
 						// empty queue
 						break;
 					}
-					else if(stream->server)
-					{
-						// peer has shut down
-						close(stream->fd);
-						stream->fd = -1;
-					}
 
+					_close_socket(fd);
 					stream->connected = false;
 					ev = LV2_OSC_STREAM_ERRNO(ev, errno);
 					break;
@@ -950,17 +1015,17 @@ _lv2_osc_stream_run_tcp(LV2_OSC_Stream *stream)
 	// recv everything
 	if(stream->connected)
 	{
-		const int fd = stream->server
-			? stream->fd
-			: stream->sock;
+		int *fd = stream->server
+			? &stream->fd
+			: &stream->sock;
 
-		if(fd >= 0)
+		if(*fd >= 0)
 		{
 			if(stream->slip) // SLIP framed
 			{
 				while(true)
 				{
-					ssize_t recvd = recv(fd, stream->rx_buf + stream->rx_off,
+					ssize_t recvd = recv(*fd, stream->rx_buf + stream->rx_off,
 						sizeof(stream->rx_buf) - stream->rx_off, 0);
 
 					if(recvd == -1)
@@ -970,26 +1035,15 @@ _lv2_osc_stream_run_tcp(LV2_OSC_Stream *stream)
 							// empty queue
 							break;
 						}
-						else if(stream->server)
-						{
-							// peer has shut down
-							close(stream->fd);
-							stream->fd = -1;
-						}
 
+						_close_socket(fd);
 						stream->connected = false;
 						ev = LV2_OSC_STREAM_ERRNO(ev, errno);
 						break;
 					}
 					else if(recvd == 0)
 					{
-						if(stream->server)
-						{
-							// peer has shut down
-							close(stream->fd);
-							stream->fd = -1;
-						}
-
+						_close_socket(fd);
 						stream->connected = false; // orderly shutdown
 						break;
 					}
@@ -1053,11 +1107,11 @@ _lv2_osc_stream_run_tcp(LV2_OSC_Stream *stream)
 				{
 					uint32_t prefix;
 
-					ssize_t recvd = recv(fd, &prefix, sizeof(uint32_t), 0);
+					ssize_t recvd = recv(*fd, &prefix, sizeof(uint32_t), 0);
 					if(recvd == sizeof(uint32_t))
 					{
 						prefix = ntohl(prefix); //FIXME check prefix <= max_len
-						recvd = recv(fd, buf, prefix, 0);
+						recvd = recv(*fd, buf, prefix, 0);
 					}
 					else if(recvd == -1)
 					{
@@ -1066,26 +1120,15 @@ _lv2_osc_stream_run_tcp(LV2_OSC_Stream *stream)
 							// empty queue
 							break;
 						}
-						else if(stream->server)
-						{
-							// peer has shut down
-							close(stream->fd);
-							stream->fd = -1;
-						}
 
+						_close_socket(fd);
 						stream->connected = false;
 						ev = LV2_OSC_STREAM_ERRNO(ev, errno);
 						break;
 					}
 					else if(recvd == 0)
 					{
-						if(stream->server)
-						{
-							// peer has shut down
-							close(stream->fd);
-							stream->fd = -1;
-						}
-
+						_close_socket(fd);
 						stream->connected = false; // orderly shutdown
 						break;
 					}
@@ -1331,22 +1374,35 @@ lv2_osc_stream_run(LV2_OSC_Stream *stream)
 	return ev;
 }
 
-static int
-lv2_osc_stream_deinit(LV2_OSC_Stream *stream)
+static LV2_OSC_Enum
+lv2_osc_stream_pollin(LV2_OSC_Stream *stream, int timeout_ms)
 {
-	if(stream->fd >= 0)
+	struct pollfd fds [2] = {
+		[0] = {
+			.fd = stream->sock,
+			.events = POLLIN,
+			.revents = 0
+		},
+		[1] = {
+			.fd = stream->fd,
+			.events = POLLIN,
+			.revents = 0
+		}
+	};
+
+	const int res = poll(fds, 2, timeout_ms);
+	if(res < 0)
 	{
-		close(stream->fd);
-		stream->fd = -1;
+		return LV2_OSC_STREAM_ERRNO(LV2_OSC_NONE, errno);
 	}
 
-	if(stream->sock >= 0)
-	{
-		close(stream->sock);
-		stream->sock = -1;
-	}
+#if 0
+	fprintf(stderr, "++ %i: %i %i %i %i\n", res,
+		fds[0].fd, (int)fds[0].revents,
+		fds[1].fd, (int)fds[1].revents);
+#endif
 
-	return 0;
+	return lv2_osc_stream_run(stream);
 }
 
 #ifdef __cplusplus

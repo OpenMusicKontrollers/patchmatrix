@@ -23,6 +23,9 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
+#if !defined(_WIN32)
+# include <fnmatch.h>
+#endif
 
 #include <osc.lv2/osc.h>
 
@@ -45,6 +48,15 @@ extern "C" {
 typedef void (*LV2_OSC_Method)(const char *path,
 	const LV2_Atom_Tuple *arguments, void *data);
 
+typedef struct _LV2_OSC_Hook LV2_OSC_Hook;
+
+struct _LV2_OSC_Hook {
+	const char *name;
+	const LV2_OSC_Hook *hooks;
+	LV2_OSC_Method method;
+	void *data;
+};
+
 // characters not allowed in OSC path string
 static const char invalid_path_chars [] = {
 	' ', '#',
@@ -59,6 +71,120 @@ static const char valid_format_chars [] = {
 	LV2_OSC_SYMBOL, LV2_OSC_MIDI,
 	'\0'
 };
+
+static bool
+lv2_osc_pattern_match(const char *from, const char *name, size_t len)
+{
+#if !defined(_WIN32)
+	size_t nbrace = 0;
+
+#	if defined(FNM_EXTMATCH)
+	// count opening curly braces
+	for(size_t i = 0; i < len; i++)
+	{
+		if(from[i] == '{')
+		{
+			nbrace++;
+		}
+	}
+#	endif
+
+	// allocate temporary pattern buffer
+	char *pattern = alloca(len + nbrace + 1);
+
+	if(!pattern)
+	{
+		return false;
+	}
+
+#	if defined(FNM_EXTMATCH)
+	// convert {x,y} to @(x|y) for extended fnmatch
+	if(nbrace)
+	{
+		char *ptr = pattern;
+
+		for(size_t i = 0; i < len; i++)
+		{
+			switch(from[i])
+			{
+				case '{':
+				{
+					*ptr++ = '@';
+					*ptr++ = '(';
+				} break;
+				case ',':
+				{
+					*ptr++ = '|';
+				} break;
+				case '}':
+				{
+					*ptr++ = ')';
+				} break;
+				default:
+				{
+					*ptr++ = from[i];
+				} break;
+			}
+		}
+	}
+	else
+#	endif
+	{
+		memcpy(pattern, from, len);
+	}
+
+	// terminate pattern string with null terminator
+	pattern[len + nbrace] = '\0';
+
+#	if defined(FNM_EXTMATCH)
+	return fnmatch(pattern, name, FNM_NOESCAPE | FNM_EXTMATCH) == 0 ? true : false;
+#	else
+	return fnmatch(pattern, name, FNM_NOESCAPE) == 0 ? true : false;
+#	endif
+#else
+	return strncmp(from, name, len) == 0 ? true : false;
+#endif
+}
+
+static void
+_lv2_osc_hooks_internal(const char *path, const char *from,
+	const LV2_Atom_Tuple *arguments, const LV2_OSC_Hook *hooks)
+{
+	const char *ptr = strchr(from, '/');
+
+	const size_t len = ptr
+		? (size_t)(ptr - from)
+		: strlen(from);
+
+	for(const LV2_OSC_Hook *hook = hooks; hook && hook->name; hook++)
+	{
+		if(lv2_osc_pattern_match(from, hook->name, len))
+		{
+			if(hook->hooks && ptr)
+			{
+				from = &ptr[1];
+
+				_lv2_osc_hooks_internal(path, from, arguments, hook->hooks);
+			}
+			else if(hook->method && !ptr)
+			{
+				hook->method(path, arguments, hook->data);
+			}
+		}
+	}
+}
+
+/**
+   TODO
+*/
+static void
+lv2_osc_hooks(const char *path, const LV2_Atom_Tuple *arguments, void *data)
+{
+	const LV2_OSC_Hook *hooks = data;
+	const char *from = &path[1];
+
+	_lv2_osc_hooks_internal(path, from, arguments, hooks);
+}
 
 /**
    TODO
