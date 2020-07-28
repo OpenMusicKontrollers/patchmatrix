@@ -17,6 +17,9 @@
 
 #include <sys/wait.h>
 
+#define NSMC_IMPLEMENTATION
+#include <nsmc/nsmc.h>
+
 #include <patchmatrix.h>
 #include <patchmatrix_jack.h>
 #include <patchmatrix_nk.h>
@@ -43,6 +46,24 @@ _sig_child(int signum)
 	{
 		// reap zombies
 	}
+}
+
+static int
+_nsm_callback(void *data, const nsmc_event_t *ev)
+{
+	app_t *app = data;
+	(void)app; //FIXME
+
+	switch(ev->type)
+	{
+		//FIXME
+		default:
+		{
+			// nothing to do
+		} break;
+	}
+
+	return 0;
 }
 
 int
@@ -119,6 +140,14 @@ main(int argc, char **argv)
 				return -1;
 		}
 	}
+
+	const char *path = NULL; //FIXME
+	app.nsm = nsmc_new(argv[0], "PATCHMATRIX-MONITOR", path,
+		_nsm_callback, &app);
+
+	//FIXME
+
+	nsmc_free(app.nsm);
 
 	signal(SIGINT, _sig_interrupt);
 	signal(SIGCHLD, _sig_child);

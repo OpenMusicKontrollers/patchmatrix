@@ -19,10 +19,10 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#include <patchmatrix.h>
-
 #define NSMC_IMPLEMENTATION
 #include <nsmc/nsmc.h>
+
+#include <patchmatrix.h>
 
 typedef struct _mixer_app_t mixer_app_t;
 
@@ -443,6 +443,24 @@ _jack_session_cb(jack_session_event_t *jev, void *arg)
 	jack_session_event_free(jev);
 }
 
+static int
+_nsm_callback(void *data, const nsmc_event_t *ev)
+{
+	app_t *mixer = data;
+	(void)mixer; //FIXME
+
+	switch(ev->type)
+	{
+		//FIXME
+		default:
+		{
+			// nothing to do
+		} break;
+	}
+
+	return 0;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -535,6 +553,14 @@ main(int argc, char **argv)
 				return -1;
 		}
 	}
+
+	const char *path = NULL; //FIXME
+	mixer.nsm = nsmc_new(argv[0], "PATCHMATRIX-MONITOR", path,
+		_nsm_callback, &mixer);
+
+	//FIXME
+
+	nsmc_free(mixer.nsm);
 
 	if(root)
 	{
