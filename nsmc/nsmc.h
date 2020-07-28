@@ -27,6 +27,7 @@ extern "C" {
 #endif
 
 #include <stdbool.h>
+#include <stdarg.h>
 
 typedef enum _nsmc_err_t {
 	NSMC_ERR_GENERAL          = -1,
@@ -110,16 +111,6 @@ struct _nsmc_event_t {
 		nsmc_event_error_t error;
 		nsmc_event_reply_t reply;
 	};
-};
-
-static const char *nsmc_capability_labels [NSMC_CAPABILITY_MAX] = {
-	[NSMC_CAPABILITY_SWITCH] = "switch",
-	[NSMC_CAPABILITY_DIRTY] = "dirty",
-	[NSMC_CAPABILITY_PROGRESS] = "progress",
-	[NSMC_CAPABILITY_MESSAGE] = "message",
-	[NSMC_CAPABILITY_OPTIONAL_GUI] = "optional-gui",
-	[NSMC_CAPABILITY_SERVER_CONTROL] = "server-control",
-	[NSMC_CAPABILITY_BROADCAST] = "broadcast"
 };
 
 NSMC_API nsmc_t *
@@ -223,6 +214,16 @@ struct _nsmc_t {
 	varchunk_t *rx;
 
 	nsmc_capability_t host_capability;
+};
+
+static const char *nsmc_capability_labels [NSMC_CAPABILITY_MAX] = {
+	[NSMC_CAPABILITY_SWITCH] = "switch",
+	[NSMC_CAPABILITY_DIRTY] = "dirty",
+	[NSMC_CAPABILITY_PROGRESS] = "progress",
+	[NSMC_CAPABILITY_MESSAGE] = "message",
+	[NSMC_CAPABILITY_OPTIONAL_GUI] = "optional-gui",
+	[NSMC_CAPABILITY_SERVER_CONTROL] = "server-control",
+	[NSMC_CAPABILITY_BROADCAST] = "broadcast"
 };
 
 static int
