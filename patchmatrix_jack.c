@@ -823,13 +823,10 @@ _jack_init(app_t *app)
 	jack_options_t opts = JackNullOption | JackNoStartServer;
 	if(app->server_name)
 		opts |= JackServerName;
-	if(app->session_id)
-		opts |= JackSessionID;
 
 	jack_status_t status;
 	app->client = jack_client_open("patchmatrix", opts, &status,
-		app->server_name ? app->server_name : app->session_id,
-		app->server_name ? app->session_id : NULL);
+		app->server_name ? app->server_name : NULL);
 	if(!app->client)
 		return -1;
 

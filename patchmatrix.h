@@ -288,7 +288,6 @@ struct _app_t {
 	varchunk_t *from_jack;
 
 	const char *server_name;
-	const char *session_id;
 
 	nk_pugl_window_t win;
 

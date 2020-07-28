@@ -470,7 +470,6 @@ main(int argc, char **argv)
 	cJSON *root = NULL;
 	cJSON *gains_node = NULL;
 	const char *server_name = NULL;
-	const char *session_id = NULL;
 	unsigned nsinks = 1;
 	unsigned nsources = 1;
 	mixer.type = TYPE_AUDIO;
@@ -481,7 +480,7 @@ main(int argc, char **argv)
 		"Released under Artistic License 2.0 by Open Music Kontrollers\n", argv[0]);
 
 	int c;
-	while((c = getopt(argc, argv, "vhn:u:t:i:o:d:")) != -1)
+	while((c = getopt(argc, argv, "vhn:t:i:o:d:")) != -1)
 	{
 		switch(c)
 		{
@@ -514,15 +513,11 @@ main(int argc, char **argv)
 					"   [-i] input-num       port input number (1-%i)\n"
 					"   [-o] output-num      port output number (1-%i)\n"
 					"   [-n] server-name     connect to named JACK daemon\n"
-					"   [-u] client-uuid     client UUID for JACK session management\n"
 					"   [-d] session-dir     directory for JACK session management\n\n"
 					, argv[0], PORT_MAX, PORT_MAX);
 				return 0;
 			case 'n':
 				server_name = optarg;
-				break;
-			case 'u':
-				session_id = optarg;
 				break;
 			case 'd':
 				root = _load_session(optarg);
@@ -541,7 +536,7 @@ main(int argc, char **argv)
 					nsources = PORT_MAX;
 				break;
 			case '?':
-				if( (optopt == 'n') || (optopt == 'u') || (optopt == 't')
+				if( (optopt == 'n') ||  (optopt == 't')
 						|| (optopt == 'i') || (optopt == 'o') || (optopt == 'd') )
 					fprintf(stderr, "Option `-%c' requires an argument.\n", optopt);
 				else if(isprint(optopt))
@@ -590,13 +585,10 @@ main(int argc, char **argv)
 	jack_options_t opts = JackNullOption | JackNoStartServer;
 	if(server_name)
 		opts |= JackServerName;
-	if(session_id)
-		opts |= JackSessionID;
 
 	jack_status_t status;
 	mixer.client = jack_client_open(PATCHMATRIX_MIXER_ID, opts, &status,
-		server_name ? server_name : session_id,
-		server_name ? session_id : NULL);
+		server_name ? server_name : NULL);
 	if(!mixer.client)
 		return -1;
 
