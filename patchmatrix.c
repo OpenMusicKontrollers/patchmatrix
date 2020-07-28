@@ -29,6 +29,7 @@
 #include <nk_pugl/nk_pugl.h>
 
 static app_t app;
+static atomic_bool done = ATOMIC_VAR_INIT(false);
 
 static void
 _sig_interrupt(int signum)
@@ -113,18 +114,14 @@ main(int argc, char **argv)
 					"OPTIONS\n"
 					"   [-v]                 print version and full license information\n"
 					"   [-h]                 print usage information\n"
-					"   [-n] server-name     connect to named JACK daemon\n"
-					"   [-d] session-dir     directory for JACK session management\n\n"
+					"   [-n] server-name     connect to named JACK daemon\n\n"
 					, argv[0]);
 				return 0;
 			case 'n':
 				app.server_name = optarg;
 				break;
-			case 'd':
-				app.root = _load_session(optarg);
-				break;
 			case '?':
-				if( (optopt == 'n') || (optopt == 'd') )
+				if( (optopt == 'n') )
 					fprintf(stderr, "Option `-%c' requires an argument.\n", optopt);
 				else if(isprint(optopt))
 					fprintf(stderr, "Unknown option `-%c'.\n", optopt);
@@ -136,11 +133,27 @@ main(int argc, char **argv)
 		}
 	}
 
-	const char *path = NULL; //FIXME
-	app.nsm = nsmc_new(argv[0], "PATCHMATRIX-MONITOR", path,
-		_nsm_callback, &app);
+	const char *exe = strrchr(argv[0], '/');
+	exe = exe ? exe + 1 : argv[0];
+	app.nsm = nsmc_new("PATCHMATRIX", exe, argv[optind], _nsm_callback, &app);
 
-	//FIXME
+	if(!app.nsm)
+	{
+		fprintf(stderr, "[%s] nsmc_new failed\n", __func__);
+		return 1;
+	}
+
+	while(!atomic_load(&done))
+	{
+		if(nsmc_managed())
+		{
+			nsmc_pollin(app.nsm, 1000);
+		}
+		else
+		{
+			sleep(1);
+		}
+	}
 
 	nsmc_free(app.nsm);
 

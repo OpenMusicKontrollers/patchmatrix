@@ -42,8 +42,10 @@ struct _monitor_app_t {
 
 	monitor_shm_t *shm;	
 	nsmc_t *nsm;
+	char *path;
 };
 
+static atomic_bool done = ATOMIC_VAR_INIT(false);
 static atomic_bool closed = ATOMIC_VAR_INIT(false);
 
 static void
@@ -213,18 +215,106 @@ _jack_session_cb(jack_session_event_t *jev, void *arg)
 }
 
 static int
+_jack_deinit(monitor_app_t *monitor)
+{
+	jack_deactivate(monitor->client);
+	jack_client_close(monitor->client);
+	monitor->client = NULL;
+
+	return 0;
+}
+
+static int
+_jack_init(monitor_app_t *monitor, const char *id)
+{
+	jack_options_t opts = JackNullOption | JackNoStartServer; //FIXME
+	jack_status_t status;
+
+	monitor->client = jack_client_open(id, opts, &status); //FIXME
+	if(!monitor->client)
+	{
+		fprintf(stderr, "[%s] jack_client_open failed\n", __func__);
+		return -1;
+	}
+
+	//TODO check status
+	
+	//jack_set_process_callback(monitor->client, _process, monitor);
+
+	return 0;
+}
+
+static int
+_open(monitor_app_t *monitor, const char *path, const char *name, const char *id)
+{
+	const bool switch_over = monitor->client ? true : false;
+
+	if(monitor->path)
+	{
+		free(monitor->path);
+	}
+
+	monitor->path = strdup(path); //FIXME free
+
+	if(switch_over)
+	{
+		_jack_deinit(monitor);
+	}
+
+	if(_jack_init(monitor, id) != 0)
+	{
+		nsmc_opened(monitor->nsm, -1);
+	}
+
+	jack_activate(monitor->client);
+
+	return nsmc_opened(monitor->nsm, 0); //FIXME
+}
+
+static int
+_save(monitor_app_t *monitor)
+{
+	return nsmc_saved(monitor->nsm, 0); //FIXME
+}
+
+static int
 _nsm_callback(void *data, const nsmc_event_t *ev)
 {
-	app_t *monitor = data;
-	(void)monitor; //FIXME
+	monitor_app_t *monitor = data;
 
 	switch(ev->type)
 	{
-		//FIXME
+		case NSMC_EVENT_TYPE_OPEN:
+			return _open(monitor, ev->open.path, ev->open.name, ev->open.id);
+		case NSMC_EVENT_TYPE_SAVE:
+			return _save(monitor);
+		case NSMC_EVENT_TYPE_SHOW:
+			return 1; // not supported
+		case NSMC_EVENT_TYPE_HIDE:
+			return 1; // not supported
+		case NSMC_EVENT_TYPE_SESSION_IS_LOADED:
+			return 0;
+
+		case NSMC_EVENT_TYPE_VISIBILITY:
+			return 0; // not supported
+		case NSMC_EVENT_TYPE_CAPABILITY:
+			return NSMC_CAPABILITY_MESSAGE
+				| NSMC_CAPABILITY_SWITCH ;
+
+		case NSMC_EVENT_TYPE_ERROR:
+			fprintf(stderr, "err: %s: (%i) %s", ev->error.request,
+				ev->error.code, ev->error.message);
+			return 0;
+		case NSMC_EVENT_TYPE_REPLY:
+			fprintf(stderr, "reply: %s", ev->reply.request);
+			return 0;
+
+		case NSMC_EVENT_TYPE_NONE:
+			// fall-through
+		case NSMC_EVENT_TYPE_MAX:
+			// fall-through
 		default:
-		{
-			// nothing to do
-		} break;
+			return 1;
 	}
 
 	return 0;
@@ -278,15 +368,11 @@ main(int argc, char **argv)
 					"   [-h]                 print usage information\n"
 					"   [-t] port-type       port type (audio, midi)\n"
 					"   [-i] input-num       port input number (1-%i)\n"
-					"   [-n] server-name     connect to named JACK daemon\n"
-					"   [-d] session-dir     directory for JACK session management\n\n"
+					"   [-n] server-name     connect to named JACK daemon\n\n"
 					, argv[0], PORT_MAX);
 				return 0;
 			case 'n':
 				server_name = optarg;
-				break;
-			case 'd':
-				root = _load_session(optarg);
 				break;
 			case 't':
 				monitor.type = _port_type_from_string(optarg);
@@ -297,8 +383,7 @@ main(int argc, char **argv)
 					nsinks = PORT_MAX;
 				break;
 			case '?':
-				if( (optopt == 'n') || (optopt == 't')
-						|| (optopt == 'i') || (optopt == 'd') )
+				if( (optopt == 'n') || (optopt == 't') || (optopt == 'i') )
 					fprintf(stderr, "Option `-%c' requires an argument.\n", optopt);
 				else if(isprint(optopt))
 					fprintf(stderr, "Unknown option `-%c'.\n", optopt);
@@ -310,11 +395,27 @@ main(int argc, char **argv)
 		}
 	}
 
-	const char *path = NULL; //FIXME
-	monitor.nsm = nsmc_new(argv[0], "PATCHMATRIX-MONITOR", path,
-		_nsm_callback, &monitor);
+	const char *exe = strrchr(argv[0], '/');
+	exe = exe ? exe + 1 : argv[0];
+	monitor.nsm = nsmc_new("PATCHMATRIX-MONITOR", exe, argv[optind], _nsm_callback, &monitor);
 
-	//FIXME
+	if(!monitor.nsm)
+	{
+		fprintf(stderr, "[%s] nsmc_new failed\n", __func__);
+		return 1;
+	}
+
+	while(!atomic_load(&done))
+	{
+		if(nsmc_managed())
+		{
+			nsmc_pollin(monitor.nsm, 1000);
+		}
+		else
+		{
+			sleep(1);
+		}
+	}
 
 	nsmc_free(monitor.nsm);
 

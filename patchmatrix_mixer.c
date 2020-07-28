@@ -40,6 +40,7 @@ struct _mixer_app_t {
 	nsmc_t *nsm;
 };
 
+static atomic_bool done = ATOMIC_VAR_INIT(false);
 static atomic_bool closed = ATOMIC_VAR_INIT(false);
 
 static void
@@ -512,15 +513,11 @@ main(int argc, char **argv)
 					"   [-t] port-type       port type (audio, midi)\n"
 					"   [-i] input-num       port input number (1-%i)\n"
 					"   [-o] output-num      port output number (1-%i)\n"
-					"   [-n] server-name     connect to named JACK daemon\n"
-					"   [-d] session-dir     directory for JACK session management\n\n"
+					"   [-n] server-name     connect to named JACK daemon\n\n"
 					, argv[0], PORT_MAX, PORT_MAX);
 				return 0;
 			case 'n':
 				server_name = optarg;
-				break;
-			case 'd':
-				root = _load_session(optarg);
 				break;
 			case 't':
 				mixer.type = _port_type_from_string(optarg);
@@ -537,7 +534,7 @@ main(int argc, char **argv)
 				break;
 			case '?':
 				if( (optopt == 'n') ||  (optopt == 't')
-						|| (optopt == 'i') || (optopt == 'o') || (optopt == 'd') )
+						|| (optopt == 'i') || (optopt == 'o') )
 					fprintf(stderr, "Option `-%c' requires an argument.\n", optopt);
 				else if(isprint(optopt))
 					fprintf(stderr, "Unknown option `-%c'.\n", optopt);
@@ -549,11 +546,27 @@ main(int argc, char **argv)
 		}
 	}
 
-	const char *path = NULL; //FIXME
-	mixer.nsm = nsmc_new(argv[0], "PATCHMATRIX-MONITOR", path,
-		_nsm_callback, &mixer);
+	const char *exe = strrchr(argv[0], '/');
+	exe = exe ? exe + 1 : argv[0];
+	mixer.nsm = nsmc_new("PATCHMATRIX-MIXER", exe, argv[optind], _nsm_callback, &mixer);
 
-	//FIXME
+	if(!mixer.nsm)
+	{
+		fprintf(stderr, "[%s] nsmc_new failed\n", __func__);
+		return 1;
+	}
+
+	while(!atomic_load(&done))
+	{
+		if(nsmc_managed())
+		{
+			nsmc_pollin(mixer.nsm, 1000);
+		}
+		else
+		{
+			sleep(1);
+		}
+	}
 
 	nsmc_free(mixer.nsm);
 
