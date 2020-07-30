@@ -163,7 +163,7 @@ struct _mixer_shm_t {
 struct _monitor_shm_t {
 	sem_t done;
 	atomic_bool closing;
-	unsigned nsinks;
+	atomic_uint nsinks;
 	atomic_int jgains [PORT_MAX];
 };
 

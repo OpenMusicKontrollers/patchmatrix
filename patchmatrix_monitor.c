@@ -41,7 +41,6 @@ struct _monitor_app_t {
 	port_type_t type;
 
 	const char *server_name;
-	unsigned nsinks;
 	monitor_shm_t *shm;	
 	nsmc_t *nsm;
 	char *path;
@@ -77,6 +76,7 @@ _audio_monitor_process(jack_nframes_t nframes, void *arg)
 {
 	monitor_app_t *monitor = arg;
 	monitor_shm_t *shm = monitor->shm;
+	const unsigned nsinks = atomic_load_explicit(&shm->nsinks, memory_order_acquire);
 
 	if(  atomic_load_explicit(&closed, memory_order_relaxed)
 		|| atomic_load_explicit(&shm->closing, memory_order_relaxed) )
@@ -85,8 +85,6 @@ _audio_monitor_process(jack_nframes_t nframes, void *arg)
 	}
 
 	const float *psinks [PORT_MAX];
-
-	const unsigned nsinks = shm->nsinks;
 
 	for(unsigned i = 0; i < nsinks; i++)
 	{
@@ -130,6 +128,7 @@ _midi_monitor_process(jack_nframes_t nframes, void *arg)
 {
 	monitor_app_t *monitor = arg;
 	monitor_shm_t *shm = monitor->shm;
+	const unsigned nsinks = atomic_load_explicit(&shm->nsinks, memory_order_acquire);
 
 	if(  atomic_load_explicit(&closed, memory_order_relaxed)
 		|| atomic_load_explicit(&shm->closing, memory_order_relaxed) )
@@ -138,8 +137,6 @@ _midi_monitor_process(jack_nframes_t nframes, void *arg)
 	}
 
 	void *psinks [PORT_MAX];
-
-	const unsigned nsinks = shm->nsinks;
 
 	for(unsigned i = 0; i < nsinks; i++)
 	{
@@ -189,12 +186,13 @@ static cJSON *
 _create_session(monitor_app_t *monitor)
 {
 	monitor_shm_t *shm = monitor->shm;
+	const unsigned nsinks = atomic_load_explicit(&shm->nsinks, memory_order_acquire);
 
 	cJSON *root = cJSON_CreateObject();
 	if(root)
 	{
 		cJSON_AddStringToObject(root, "type", _port_type_to_string(monitor->type));
-		cJSON_AddNumberToObject(root, "nsinks", shm->nsinks);
+		cJSON_AddNumberToObject(root, "nsinks", nsinks);
 
 		return root;
 	}
@@ -203,11 +201,11 @@ _create_session(monitor_app_t *monitor)
 }
 
 static int
-_jack_deinit(monitor_app_t *monitor)
+_jack_deinit(monitor_app_t *monitor, unsigned nsinks)
 {
 	jack_deactivate(monitor->client);
 
-	for(unsigned i = 0; i < monitor->nsinks; i++)
+	for(unsigned i = 0; i < nsinks; i++)
 	{
 #ifdef JACK_HAS_METADATA_API
 		jack_uuid_t uuid = jack_port_uuid(monitor->jsinks[i]);
@@ -223,7 +221,7 @@ _jack_deinit(monitor_app_t *monitor)
 }
 
 static int
-_jack_init(monitor_app_t *monitor, const char *id)
+_jack_init(monitor_app_t *monitor, const char *id, unsigned nsinks)
 {
 	jack_status_t status;
 	jack_options_t opts = JackNullOption | JackNoStartServer;
@@ -244,7 +242,7 @@ _jack_init(monitor_app_t *monitor, const char *id)
 
 	monitor->sample_rate_1 = 1.f / jack_get_sample_rate(monitor->client);
 
-	for(unsigned i = 0; i < monitor->nsinks; i++)
+	for(unsigned i = 0; i < nsinks; i++)
 	{
 		char buf [32];
 		snprintf(buf, 32, "sink_%02u", i + 1);
@@ -289,6 +287,8 @@ _jack_init(monitor_app_t *monitor, const char *id)
 static int
 _open(monitor_app_t *monitor, const char *path, const char *name, const char *id)
 {
+	monitor_shm_t *shm = monitor->shm;
+	unsigned nsinks = atomic_load_explicit(&shm->nsinks, memory_order_acquire);
 	const bool switch_over = monitor->client ? true : false;
 
 	if(monitor->path)
@@ -297,6 +297,14 @@ _open(monitor_app_t *monitor, const char *path, const char *name, const char *id
 	}
 
 	monitor->path = strdup(path);
+
+	if(switch_over)
+	{
+		if(_jack_deinit(monitor, nsinks) != 0)
+		{
+			return nsmc_opened(monitor->nsm, -1);
+		}
+	}
 
 	cJSON *root = _load_session(path);
 
@@ -313,24 +321,18 @@ _open(monitor_app_t *monitor, const char *path, const char *name, const char *id
 		cJSON *nsinks_node = cJSON_GetObjectItem(root, "nsinks");
 		if(nsinks_node && cJSON_IsNumber(nsinks_node))
 		{
-			monitor->nsinks = nsinks_node->valueint;
+			nsinks = nsinks_node->valueint;
 		}
 
 		cJSON_Delete(root);
 	}
 
-	if(switch_over)
-	{
-		if(_jack_deinit(monitor) != 0)
-		{
-			return nsmc_opened(monitor->nsm, -1);
-		}
-	}
-
-	if(_jack_init(monitor, id) != 0)
+	if(_jack_init(monitor, id, nsinks) != 0)
 	{
 		return nsmc_opened(monitor->nsm, -1);
 	}
+
+	atomic_store_explicit(&shm->nsinks, nsinks, memory_order_release);
 
 	return nsmc_opened(monitor->nsm, 0);
 }
@@ -399,10 +401,10 @@ main(int argc, char **argv)
 {
 	static monitor_app_t monitor;
 	const size_t total_size = sizeof(monitor_shm_t);
+	unsigned nsinks = 1;
 
 	monitor.server_name = NULL;
 	monitor.type = TYPE_AUDIO;
-	monitor.nsinks = 1;
 
 	fprintf(stderr,
 		"%s "PATCHMATRIX_VERSION"\n"
@@ -451,10 +453,10 @@ main(int argc, char **argv)
 				monitor.type = _port_type_from_string(optarg);
 				break;
 			case 'i':
-				monitor.nsinks = atoi(optarg);
-				if(monitor.nsinks > PORT_MAX)
+				nsinks = atoi(optarg);
+				if(nsinks > PORT_MAX)
 				{
-					monitor.nsinks = PORT_MAX;
+					nsinks = PORT_MAX;
 				}
 				break;
 			case '?':
@@ -499,11 +501,11 @@ main(int argc, char **argv)
 			if((monitor.shm = mmap(NULL, total_size, PROT_READ | PROT_WRITE,
 				MAP_SHARED, fd, 0)) != MAP_FAILED)
 			{
-				monitor.shm->nsinks = monitor.nsinks;
+				atomic_store_explicit(&monitor.shm->nsinks, nsinks, memory_order_release);
 
 				atomic_init(&monitor.shm->closing, false);
 
-				for(unsigned i = 0; i < monitor.nsinks; i++)
+				for(unsigned i = 0; i < PORT_MAX; i++)
 				{
 					atomic_init(&monitor.shm->jgains[i], 0);
 				}
