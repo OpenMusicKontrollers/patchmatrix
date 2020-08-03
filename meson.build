@@ -42,10 +42,11 @@ endif
 m_dep = cc.find_library('m')
 rt_dep = cc.find_library('rt')
 lv2_dep = dependency('lv2', version : '>=1.14.0')
+lua_dep = dependency('lua', version : '>=5.3.0')
 jack_dep = dependency('jack')
 threads_dep = dependency('threads')
 
-dsp_deps = [m_dep, rt_dep, lv2_dep, jack_dep, threads_dep]
+dsp_deps = [m_dep, rt_dep, lv2_dep, jack_dep, threads_dep, lua_dep]
 ui_deps = [nk_pugl_dep]
 
 varchunk_inc = include_directories('varchunk')
