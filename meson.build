@@ -67,6 +67,10 @@ dsp_srcs = [
 	'patchmatrix_nk.c'
 ]
 
+dsp2_srcs = [
+	'patchmatrix2.c'
+]
+
 cjson_lib = static_library('cJSON', join_paths('cJSON', 'cJSON.c'))
 
 executable('patchmatrix', [dsp_srcs],
@@ -74,6 +78,12 @@ executable('patchmatrix', [dsp_srcs],
 	dependencies : [dsp_deps, ui_deps],
 	include_directories : incs,
 	link_with : cjson_lib,
+	install : true)
+
+executable('patchmatrix2', [dsp2_srcs],
+	c_args : c_args,
+	dependencies : [dsp_deps],
+	include_directories : incs,
 	install : true)
 
 executable('patchmatrix_mixer', 'patchmatrix_mixer.c',
