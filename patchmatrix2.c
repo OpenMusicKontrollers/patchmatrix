@@ -28,8 +28,13 @@
 #define NSMC_IMPLEMENTATION
 #include <nsmc/nsmc.h>
 
+#define MAX_MIXERS   512
+#define MAX_MONITORS 512
+
 typedef struct _app_config_t app_config_t;
 typedef struct _app_session_t app_session_t;
+typedef struct _app_mixer_t app_mixer_t;
+typedef struct _app_monitor_t app_monitor_t;
 typedef struct _app_t app_t;
 
 struct _app_config_t {
@@ -38,6 +43,15 @@ struct _app_config_t {
 
 struct _app_session_t {
 	bool visibility;
+	uint32_t id_offset;
+};
+
+struct _app_mixer_t {
+	uint32_t id;
+};
+
+struct _app_monitor_t {
+	uint32_t id;
 };
 
 struct _app_t {
@@ -45,6 +59,8 @@ struct _app_t {
 	lua_State *L;
 	app_config_t config;
 	app_session_t session;
+	app_mixer_t *mixers [MAX_MIXERS];
+	app_monitor_t *monitors [MAX_MONITORS];
 	char *path;
 };
 
@@ -56,22 +72,75 @@ _sig_interrupt(int signum)
 	atomic_store_explicit(&done, true, memory_order_release);
 }
 
-static int
-_lpatchmatrix_config(lua_State *L)
+static const char *
+_bool_serialize(bool val)
 {
-	app_t *app = lua_touserdata(L, lua_upvalueindex(1));
-	app_config_t *config = &app->config;
+	static const char *true_str = "true";
+	static const char *false_str = "false";
 
+	return val ? true_str : false_str;
+}
+
+static int
+_config_deserialize(lua_State *L, app_config_t *config)
+{
 	if(!lua_istable(L, 1))
 	{
-		return 0;
+		return -1;
 	}
 
 	lua_getfield(L, 1, "foo");
 	config->foo = luaL_optstring(L, -1, "unknown");
 	lua_pop(L, 1);
 
+	return 0;
+}
+
+static int
+_lpatchmatrix_config(lua_State *L)
+{
+	app_t *app = lua_touserdata(L, lua_upvalueindex(1));
+	app_config_t *config = &app->config;
+
+	if(_config_deserialize(L, config) != 0)
+	{
+		luaL_error(L, "[%s] config deserialize failed", __func__);
+	}
+
 	fprintf(stderr, "foo -> %s\n", config->foo);
+
+	return 0;
+}
+
+static int
+_session_deserialize(lua_State *L, app_session_t *session)
+{
+	if(!lua_istable(L, 1))
+	{
+		return -1;
+	}
+
+	lua_getfield(L, 1, "visibility");
+	session->visibility = lua_toboolean(L, -1);
+	lua_pop(L, 1);
+
+	lua_getfield(L, 1, "id_offset");
+	session->id_offset = luaL_optinteger(L, -1, 0);
+	lua_pop(L, 1);
+
+	return 0;
+}
+
+static int
+_session_serialize(FILE *fout, app_session_t *session)
+{
+	fprintf(fout,
+		"patchmatrix.session {\n"
+		"\tvisibility = %s,\n"
+		"\tid_offset = %"PRIu32",\n"
+		"}\n\n",
+		_bool_serialize(session->visibility),
+		session->id_offset);
 
 	return 0;
 }
@@ -82,16 +151,37 @@ _lpatchmatrix_session(lua_State *L)
 	app_t *app = lua_touserdata(L, lua_upvalueindex(1));
 	app_session_t *session = &app->session;
 
-	if(!lua_istable(L, 1))
+	if(_session_deserialize(L, session) != 0)
 	{
-		return 0;
+		luaL_error(L, "[%s] session deserialization failed", __func__);
 	}
 
-	lua_getfield(L, 1, "visibility");
-	session->visibility = lua_toboolean(L, -1);
+	return 0;
+}
+
+static int
+_mixer_deserialize(lua_State *L, app_mixer_t *mixer)
+{
+	if(!lua_istable(L, 1))
+	{
+		return -1;
+	}
+
+	lua_getfield(L, 1, "id");
+	mixer->id = luaL_optinteger(L, -1, 0);
 	lua_pop(L, 1);
 
-	fprintf(stderr, "visibility -> %i\n", session->visibility);
+	return 0;
+}
+
+static int
+_mixer_serialize(FILE *fout, app_mixer_t *mixer)
+{
+	fprintf(fout,
+		"patchmatrix.mixer {\n"
+		"\tid = %"PRIu32",\n"
+		"}\n\n",
+		mixer->id);
 
 	return 0;
 }
@@ -100,9 +190,49 @@ static int
 _lpatchmatrix_mixer(lua_State *L)
 {
 	app_t *app = lua_touserdata(L, lua_upvalueindex(1));
+	app_session_t *session = &app->session;
 
-	(void)app;
-	//FIXME
+	app_mixer_t *mixer = calloc(1, sizeof(app_mixer_t));
+
+	if(_mixer_deserialize(L, mixer) != 0)
+	{
+		luaL_error(L, "[%s] mixer deserialize failed", __func__);
+	}
+
+	if(mixer->id == 0)
+	{
+		mixer->id = session->id_offset++;
+	}
+
+	app->mixers[0] = mixer; //FIXME
+
+	return 0;
+}
+
+static int
+_monitor_deserialize(lua_State *L, app_monitor_t *monitor)
+{
+	if(!lua_istable(L, 1))
+	{
+		return -1;
+	}
+
+	lua_getfield(L, 1, "id");
+	monitor->id = luaL_optinteger(L, -1, 0);
+	lua_pop(L, 1);
+
+	return 0;
+}
+
+static int
+_monitor_serialize(FILE *fout, app_monitor_t *monitor)
+{
+	fprintf(fout,
+		"patchmatrix.monitor {\n"
+		"\tid = %"PRIu32",\n"
+		"}\n\n",
+		monitor->id);
+
 	return 0;
 }
 
@@ -110,9 +240,22 @@ static int
 _lpatchmatrix_monitor(lua_State *L)
 {
 	app_t *app = lua_touserdata(L, lua_upvalueindex(1));
+	app_session_t *session = &app->session;
 
-	(void)app;
-	//FIXME
+	app_monitor_t *monitor = calloc(1, sizeof(app_monitor_t));
+
+	if(_monitor_deserialize(L, monitor) != 0)
+	{
+		luaL_error(L, "[%s] monitor deserialize failed", __func__);
+	}
+
+	if(monitor->id == 0)
+	{
+		monitor->id = session->id_offset++;
+	}
+
+	app->monitors[0] = monitor; //FIXME
+
 	return 0;
 }
 
@@ -239,13 +382,16 @@ _save(app_t *app, const char *path)
 	snprintf(session_path, sizeof(session_path),
 		"%s/session.lua", path);
 
-	static const uint8_t default_session [] =
-		"patchmatrix.session{\n"
-		"	visibility = true\n"
-		"}";
+	FILE *fout = fopen(session_path, "wb");
 
-	const int res = _file_write(session_path,
-		default_session, sizeof(default_session) - 1);
+	if(!fout)
+	{
+		nsmc_saved(app->nsm, -1); //FIXME
+	}
+
+	const int res = _session_serialize(fout, &app->session);
+
+	fclose(fout);
 
 	return nsmc_saved(app->nsm, res);
 }
@@ -398,7 +544,7 @@ main(int argc, char **argv)
 
 	const char *exe = strrchr(argv[0], '/');
 	exe = exe ? exe + 1 : argv[0];
-	app.nsm = nsmc_new("PATCHMATRIX", exe, argv[optind], _nsm_callback, &app);
+	app.nsm = nsmc_new("PatchMatrix", exe, argv[optind], _nsm_callback, &app);
 
 	if(!app.nsm)
 	{
