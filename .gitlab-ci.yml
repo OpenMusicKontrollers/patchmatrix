@@ -1,0 +1,125 @@
+stages:
+  - build
+  - deploy
+
+# templates
+.variables_template: &variables_definition
+  variables:
+    BASE_NAME: "d2tk"
+    PKG_CONFIG_PATH: "/opt/lv2/lib/pkgconfig:/opt/${CI_BUILD_NAME}/lib/pkgconfig:/usr/lib/${CI_BUILD_NAME}/pkgconfig"
+
+.common_template: &common_definition
+  <<: *variables_definition
+  stage: build
+  artifacts:
+    name: "${BASE_NAME}-$(cat VERSION)-${CI_BUILD_NAME}"
+    paths:
+      - "${BASE_NAME}-$(cat VERSION)/"
+
+.build_template: &build_definition
+  <<: *common_definition
+  stage: build
+  script:
+    - meson --prefix="/" --libdir="lib" --cross-file "${CI_BUILD_NAME}" build
+    - sed -i -e '/framework/s/-Wl,-O1//g' -e '/framework/s/-Wl,--start-group//g' -e '/framework/s/-Wl,--end-group//g' build/build.ninja
+    - ninja -C build
+    - DESTDIR="${CI_PROJECT_DIR}/${BASE_NAME}-$(cat VERSION)/${CI_BUILD_NAME}" ninja -C build install
+
+.test_template: &test_definition
+  <<: *common_definition
+  stage: build
+  script:
+    - meson --prefix="/" --libdir="lib" --cross-file "${CI_BUILD_NAME}" build
+    - sed -i -e '/framework/s/-Wl,-O1//g' -e '/framework/s/-Wl,--start-group//g' -e '/framework/s/-Wl,--end-group//g' build/build.ninja
+    - ninja -C build
+    - DESTDIR="${CI_PROJECT_DIR}/${BASE_NAME}-$(cat VERSION)/${CI_BUILD_NAME}" ninja -C build install
+
+    - meson test -C build
+
+.analyze_template: &analyze_definition
+  <<: *common_definition
+  stage: build
+  script:
+    - meson --prefix="/" --libdir="lib" --cross-file "${CI_BUILD_NAME}" build
+    - sed -i -e '/framework/s/-Wl,-O1//g' -e '/framework/s/-Wl,--start-group//g' -e '/framework/s/-Wl,--end-group//g' build/build.ninja
+    - ninja -C build
+    - DESTDIR="${CI_PROJECT_DIR}/${BASE_NAME}-$(cat VERSION)/${CI_BUILD_NAME}" ninja -C build install
+
+    - meson test -C build
+    - meson test -C build --wrap=valgrind
+
+    - CC=clang CXX=clang++ meson --prefix="/" --libdir="lib" --cross-file "${CI_BUILD_NAME}" clang
+    - ninja -C clang
+    - ninja -C clang test
+
+    - scan-build --status-bugs meson --prefix="/" --libdir="lib" --cross-file "${CI_BUILD_NAME}" scanbuild
+    - scan-build --status-bugs ninja -C scanbuild
+    - scan-build --status-bugs ninja -C scanbuild test
+
+.universal_linux_template: &universal_linux_definition
+  image: ventosus/universal-linux-gnu:buster
+  <<: *analyze_definition
+
+.arm_linux_template: &arm_linux_definition
+  image: ventosus/arm-linux-gnueabihf:buster
+  <<: *test_definition
+
+.universal_w64_template: &universal_w64_definition
+  image: ventosus/universal-w64-mingw32
+  <<: *test_definition
+
+.universal_apple_template: &universal_apple_definition
+  image: ventosus/universal-apple-darwin
+  <<: *build_definition
+
+# targets
+x86_64-linux-gnu:
+  before_script:
+    - apt-get install -y libglu1-mesa-dev libevdev-dev libvterm-dev
+  <<: *universal_linux_definition
+
+i686-linux-gnu:
+  before_script:
+    - apt-get install -y libglu1-mesa-dev:i386 libevdev-dev:i386 libvterm-dev:i386
+  <<: *universal_linux_definition
+
+arm-linux-gnueabihf:
+  before_script:
+    - apt-get install -y libglu1-mesa-dev:armhf libevdev-dev:armhf libvterm-dev:armhf
+  <<: *arm_linux_definition
+
+aarch64-linux-gnu:
+  before_script:
+    - apt-get install -y libglu1-mesa-dev:arm64 libevdev-dev:arm64 libvterm-dev:arm64
+  <<: *arm_linux_definition
+
+x86_64-w64-mingw32:
+  <<: *universal_w64_definition
+
+i686-w64-mingw32:
+  <<: *universal_w64_definition
+
+universal-apple-darwin:
+  <<: *universal_apple_definition
+
+pack:
+  <<: *variables_definition
+  stage: deploy
+  script:
+    - echo 'packing up...'
+  artifacts:
+    name: "${BASE_NAME}-$(cat VERSION)"
+    paths:
+      - "${BASE_NAME}-$(cat VERSION)/"
+
+pages:
+  stage: deploy
+  before_script:
+    - apt-get update -y
+    - apt-get install -y doxygen
+  script:
+    - doxygen
+    - cp -r doc/html public
+  artifacts:
+    paths:
+      - public/

@@ -1,0 +1,43 @@
+option('build-debug-overlay',
+	type : 'boolean',
+	value : false,
+	yield : true)
+option('build-examples',
+	type : 'boolean',
+	value : false,
+	yield : true)
+option('build-tests',
+	type : 'boolean',
+	value : true,
+	yield : true)
+
+option('use-backend-cairo',
+	type : 'feature',
+	value : 'disabled',
+	yield : true)
+option('use-backend-nanovg',
+	type : 'feature',
+	value : 'disabled',
+	yield : true)
+
+option('use-frontend-fbdev',
+	type : 'feature',
+	value : 'disabled',
+	yield : true)
+option('use-frontend-pugl',
+	type : 'feature',
+	value : 'disabled',
+	yield : true)
+
+option('use-vterm',
+	type : 'feature',
+	value : 'disabled',
+	yield : true)
+option('use-evdev',
+	type : 'feature',
+	value : 'disabled',
+	yield : true)
+option('use-fontconfig',
+	type : 'feature',
+	value : 'disabled',
+	yield : true)
