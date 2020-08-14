@@ -19,11 +19,14 @@
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
+#include <pthread.h>
 #include <sys/stat.h>
 
 #include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
+
+#include <d2tk/frontend_pugl.h>
 
 #define NSMC_IMPLEMENTATION
 #include <nsmc/nsmc.h>
@@ -62,6 +65,12 @@ struct _app_t {
 	app_mixer_t *mixers [MAX_MIXERS];
 	app_monitor_t *monitors [MAX_MONITORS];
 	char *path;
+
+	atomic_bool gui_visible;
+	float scale;
+	int32_t header_height;
+	d2tk_frontend_t *dpugl;
+	pthread_t ui_thread;
 };
 
 static atomic_bool done = ATOMIC_VAR_INIT(false);
@@ -358,7 +367,7 @@ _open(app_t *app, const char *path, const char *name, const char *id)
 
 	if(_file_exists(session_path) != 0)
 	{
-		return nsmc_opened(app->nsm, 0);;
+		return nsmc_opened(app->nsm, 0);
 	}
 
 	luaL_dofile(app->L, session_path); //FIXME check
@@ -396,24 +405,259 @@ _save(app_t *app, const char *path)
 	return nsmc_saved(app->nsm, res);
 }
 
+static inline void
+_expose_header(app_t *app, const d2tk_rect_t *rect)
+{
+	d2tk_frontend_t *dpugl = app->dpugl;
+	d2tk_base_t *base = d2tk_frontend_get_base(dpugl);
+
+	const d2tk_coord_t frac [3] = { 1, 1, 1 };
+	D2TK_BASE_LAYOUT(rect, 3, frac, D2TK_FLAG_LAYOUT_X_REL, lay)
+	{
+		const unsigned k = d2tk_layout_get_index(lay);
+		const d2tk_rect_t *lrect = d2tk_layout_get_rect(lay);
+
+		switch(k)
+		{
+			case 0:
+			{
+				d2tk_base_label(base, -1, "Open•Music•Kontrollers", 0.5f, lrect,
+					D2TK_ALIGN_LEFT | D2TK_ALIGN_TOP);
+			} break;
+			case 1:
+			{
+				d2tk_base_label(base, -1, "Patch•Matrix", 1.f, lrect,
+					D2TK_ALIGN_CENTER | D2TK_ALIGN_TOP);
+			} break;
+			case 2:
+			{
+				d2tk_base_label(base, -1, "Version "PATCHMATRIX_VERSION, 0.5f, lrect,
+					D2TK_ALIGN_RIGHT | D2TK_ALIGN_TOP);
+			} break;
+		}
+	}
+}
+
+static inline void
+_expose_node(app_t *app, unsigned k, const d2tk_rect_t *rect)
+{
+	d2tk_frontend_t *dpugl = app->dpugl;
+	d2tk_base_t *base = d2tk_frontend_get_base(dpugl);
+
+	char lbl [8];
+	const size_t lbl_len = snprintf(lbl, sizeof(lbl), "n-%02x", k);
+
+	if(d2tk_base_button_label_is_changed(base, D2TK_ID_IDX(k), lbl_len, lbl,
+		D2TK_ALIGN_CENTERED, rect))
+	{
+		//FIXME
+	}
+}
+
+static inline void
+_expose_conn(app_t *app, unsigned k, const d2tk_rect_t *rect)
+{
+	d2tk_frontend_t *dpugl = app->dpugl;
+	d2tk_base_t *base = d2tk_frontend_get_base(dpugl);
+
+	d2tk_rect_t bound;
+	d2tk_rect_shrink(&bound, rect, 10);
+
+	D2TK_BASE_TABLE(&bound, 2, 2, D2TK_FLAG_TABLE_REL, tab)
+	{
+		const d2tk_rect_t *trect = d2tk_table_get_rect(tab);
+		const unsigned j = k*1024 + d2tk_table_get_index(tab); //FIXME
+
+		if(d2tk_base_button_is_changed(base, D2TK_ID_IDX(j), trect))
+		{
+			//FIXME
+		}
+	}
+}
+
+static inline void
+_expose_body(app_t *app, const d2tk_rect_t *rect)
+{
+	d2tk_frontend_t *dpugl = app->dpugl;
+	d2tk_base_t *base = d2tk_frontend_get_base(dpugl);
+
+#if 0
+	D2TK_BASE_FLOWMATRIX(base, rect, D2TK_ID, flowm)
+	{
+		d2tk_state_t state1 = D2TK_STATE_NONE;
+		d2tk_pos_t pos1 = { -200, -200 }; //FIXME
+
+		D2TK_BASE_FLOWMATRIX_NODE(base, flowm, &pos1, node, &state1)
+		{
+			//FIXME
+		}
+
+		d2tk_state_t state2 = D2TK_STATE_NONE;
+		d2tk_pos_t pos2 = { 200, 200}; //FIXME
+
+		D2TK_BASE_FLOWMATRIX_NODE(base, flowm, &pos2, node, &state2)
+		{
+			//FIXME
+		}
+
+		d2tk_state_t astate = D2TK_STATE_NONE;
+		d2tk_pos_t apos = { 0, -100 }; //FIXME
+
+		D2TK_BASE_FLOWMATRIX_ARC(base, flowm, 2, 2, &pos1, &pos2, &apos, arc, &astate)
+		{
+			//FIXME
+		}
+	}
+#else
+	const d2tk_coord_t S = 100 * app->scale; //FIXME do only once
+	D2TK_BASE_TABLE(rect, S, S, D2TK_FLAG_TABLE_ABS, tab)
+	{
+		const d2tk_rect_t *trect = d2tk_table_get_rect(tab);
+		const unsigned x = d2tk_table_get_index_x(tab);
+		const unsigned y = d2tk_table_get_index_y(tab);
+		const unsigned k = d2tk_table_get_index(tab);
+
+		if( (x == 0) && (y == 1) )
+		{
+			_expose_node(app, k, trect);
+		}
+
+		if( (x == 1) && (y == 0) )
+		{
+			_expose_node(app, k, trect);
+		}
+		if( (x == 0) && (y == 0) )
+		{
+			_expose_conn(app, k, trect);
+		}
+
+		if( (x == 2) && (y == 2) )
+		{
+			_expose_node(app, k, trect);
+		}
+		if( (x == 0) && (y == 2) )
+		{
+			_expose_conn(app, k, trect);
+		}
+
+		if( (x == 3) && (y == 1) )
+		{
+			_expose_node(app, k, trect);
+		}
+
+		if( (x == 1) && (y == 1) )
+		{
+			_expose_conn(app, k, trect);
+		}
+		if( (x == 1) && (y == 2) )
+		{
+			_expose_conn(app, k, trect);
+		}
+		if( (x == 2) && (y == 1) )
+		{
+			_expose_conn(app, k, trect);
+		}
+	}
+#endif
+}
+
+static int
+_expose(void *data, d2tk_coord_t w, d2tk_coord_t h)
+{
+	app_t *app = data;
+	const d2tk_rect_t rect = D2TK_RECT(0, 0, w, h);
+
+	const d2tk_coord_t frac [2] = { app->header_height, 0 };
+	D2TK_BASE_LAYOUT(&rect, 2, frac, D2TK_FLAG_LAYOUT_Y_ABS, lay)
+	{
+		const unsigned k = d2tk_layout_get_index(lay);
+		const d2tk_rect_t *lrect = d2tk_layout_get_rect(lay);
+
+		switch(k)
+		{
+			case 0:
+			{
+				_expose_header(app, lrect);
+			} break;
+			case 1:
+			{
+				_expose_body(app, lrect);
+			} break;
+		}
+	}
+
+	return 0;
+}
+
+static void *
+_ui_thread(void *data)
+{
+	app_t *app = data;
+
+	d2tk_pugl_config_t config;
+	uintptr_t widget;
+
+	const d2tk_coord_t w = 800;
+	const d2tk_coord_t h = 800;
+
+	memset(&config, 0x0, sizeof(config));
+	config.bundle_path = "./"; //FIXME
+	config.min_w = w/2;
+	config.min_h = h/2;
+	config.w = w;
+	config.h = h;
+	config.fixed_size = false;
+	config.fixed_aspect = false;
+	config.expose = _expose;
+	config.data = app;
+
+	app->dpugl = d2tk_pugl_new(&config, &widget);
+	if(!app->dpugl)
+	{	
+		return NULL;
+	}
+
+	app->scale = d2tk_frontend_get_scale(app->dpugl);
+
+	app->header_height = 32 * app->scale;
+
+	while(atomic_load_explicit(&app->gui_visible, memory_order_acquire))
+	{
+		if(d2tk_frontend_poll(app->dpugl, 0.1) != 0)
+		{
+			atomic_store_explicit(&app->gui_visible, false, memory_order_release);
+		}
+	}
+
+	d2tk_frontend_free(app->dpugl);
+
+	return NULL;
+}
+
 static int
 _show(app_t *app)
 {
-	//FIXME
-	
+	if(atomic_exchange(&app->gui_visible, true) == true)
+	{
+		return 0;
+	}
+
 	app->session.visibility = true;
-	
-	return nsmc_shown(app->nsm);
+	return pthread_create(&app->ui_thread, NULL, _ui_thread, app);
 }
 
 static int
 _hide(app_t *app)
 {
-	//FIXME
-	
+	if(atomic_exchange(&app->gui_visible, false) == false)
+	{
+		return 0;
+	}
+
 	app->session.visibility = false;
-	
-	return nsmc_hidden(app->nsm);
+	pthread_join(app->ui_thread, NULL);
+
+	return 0;
 }
 
 static int
@@ -440,7 +684,7 @@ _nsm_callback(void *data, const nsmc_event_t *ev)
 		case NSMC_EVENT_TYPE_CAPABILITY:
 			return NSMC_CAPABILITY_MESSAGE
 				| NSMC_CAPABILITY_OPTIONAL_GUI
-				| NSMC_CAPABILITY_SWITCH ;
+				| NSMC_CAPABILITY_SWITCH;
 
 		case NSMC_EVENT_TYPE_ERROR:
 			fprintf(stderr, "err: %s: (%i) %s", ev->error.request,
@@ -542,9 +786,14 @@ main(int argc, char **argv)
 
 	_config_load(&app);
 
+	atomic_init(&app.gui_visible, false);
+
 	const char *exe = strrchr(argv[0], '/');
 	exe = exe ? exe + 1 : argv[0];
-	app.nsm = nsmc_new("PatchMatrix", exe, argv[optind], _nsm_callback, &app);
+	const char *fallback_path = argv[optind]
+		? argv[optind]
+		: "/tmp/patchmatrix"; //FIXME
+	app.nsm = nsmc_new("PatchMatrix", exe, fallback_path, _nsm_callback, &app);
 
 	if(!app.nsm)
 	{
@@ -561,6 +810,15 @@ main(int argc, char **argv)
 		else
 		{
 			usleep(1000);
+		}
+
+		// check if user closed the gui
+		const bool old_visibility = app.session.visibility;
+		app.session.visibility = atomic_load_explicit(&app.gui_visible, memory_order_acquire);
+		if(old_visibility && !app.session.visibility)
+		{
+			_hide(&app);
+			nsmc_hidden(app.nsm);
 		}
 	}
 
