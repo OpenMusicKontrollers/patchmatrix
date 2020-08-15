@@ -27,12 +27,34 @@
 #include <lualib.h>
 
 #include <d2tk/frontend_pugl.h>
+#include <d2tk/hash.h>
+#include "subprojects/d2tk/src/base_internal.h" //FIXME
 
 #define NSMC_IMPLEMENTATION
 #include <nsmc/nsmc.h>
 
 #define MAX_MIXERS   512
 #define MAX_MONITORS 512
+
+typedef enum _node_t {
+	NODE_NONE   = 0x000,
+
+	NODE_PLUG   = 0x100,
+
+	NODE_CONN   = 0x200,
+
+	NODE_ARCS   = 0x400,
+
+	NODE_ARCS_A = 0x001,
+	NODE_ARCS_B = 0x002,
+	NODE_ARCS_C = 0x004,
+	NODE_ARCS_D = 0x008,
+
+	NODE_ARCS_E = 0x010,
+	NODE_ARCS_F = 0x020,
+	NODE_ARCS_G = 0x040,
+	NODE_ARCS_H = 0x080
+} node_t;
 
 typedef struct _app_config_t app_config_t;
 typedef struct _app_session_t app_session_t;
@@ -444,121 +466,259 @@ _expose_node(app_t *app, unsigned k, const d2tk_rect_t *rect)
 	d2tk_frontend_t *dpugl = app->dpugl;
 	d2tk_base_t *base = d2tk_frontend_get_base(dpugl);
 
-	char lbl [8];
-	const size_t lbl_len = snprintf(lbl, sizeof(lbl), "n-%02x", k);
+	char lbl [16];
+	const size_t lbl_len = snprintf(lbl, sizeof(lbl), "Node-%02x", k);
 
-	if(d2tk_base_button_label_is_changed(base, D2TK_ID_IDX(k), lbl_len, lbl,
-		D2TK_ALIGN_CENTERED, rect))
+	d2tk_rect_t bnd;
+	d2tk_rect_shrink(&bnd, rect, -rect->h/4);
+
+	D2TK_BASE_FRAME(base, &bnd, lbl_len, lbl, frm)
 	{
-		//FIXME
+		const d2tk_rect_t *frect = d2tk_frame_get_rect(frm);
+
+		const d2tk_coord_t frac [4] = { 1, 1, 1, 1 };
+		D2TK_BASE_LAYOUT(frect, 4, frac, D2TK_FLAG_LAYOUT_Y_REL, lay)
+		{
+			const d2tk_rect_t *lrect = d2tk_layout_get_rect(lay);
+			const unsigned l = (k << 8) | d2tk_layout_get_index(lay);
+
+			int32_t val = -48 + k/4;
+			d2tk_base_meter(base, D2TK_ID_IDX(l), lrect, &val);
+		}
 	}
 }
 
 static inline void
-_expose_conn(app_t *app, unsigned k, const d2tk_rect_t *rect)
+_expose_conn(app_t *app, const d2tk_rect_t *rect)
 {
 	d2tk_frontend_t *dpugl = app->dpugl;
 	d2tk_base_t *base = d2tk_frontend_get_base(dpugl);
 
-	d2tk_rect_t bound;
-	d2tk_rect_shrink(&bound, rect, 10);
+	const d2tk_style_t *style = d2tk_base_get_style(base);
 
-	D2TK_BASE_TABLE(&bound, 2, 2, D2TK_FLAG_TABLE_REL, tab)
+	const d2tk_hash_dict_t dict [] = {
+		{ rect, sizeof(d2tk_rect_t) },
+		{ style, sizeof(d2tk_style_t) },
+		{ NULL, 0 }
+	};
+	const uint64_t hash = d2tk_hash_dict(dict);
+
+	d2tk_core_t *core = base->core;
+
+	D2TK_CORE_WIDGET(core, hash, widget)
 	{
-		const d2tk_rect_t *trect = d2tk_table_get_rect(tab);
-		const unsigned j = k*1024 + d2tk_table_get_index(tab); //FIXME
+		d2tk_rect_t bnd;
+		d2tk_rect_shrink(&bnd, rect, style->padding);
 
-		if(d2tk_base_button_is_changed(base, D2TK_ID_IDX(j), trect))
+		const d2tk_triple_t triple = D2TK_TRIPLE_ACTIVE_HOT_FOCUS;
+
+		const size_t ref = d2tk_core_bbox_push(core, true, rect);
+
+		const d2tk_coord_t x1 = rect->x;
+		const d2tk_coord_t y1 = rect->y + rect->h/2;
+
+		const d2tk_coord_t x2 = rect->x + rect->w/2;
+		const d2tk_coord_t y2 = rect->y + rect->h;
+
+		const d2tk_coord_t x3 = rect->x + rect->w;
+		const d2tk_coord_t y3 = rect->y + rect->h/2;
+
+		const d2tk_coord_t x4 = rect->x + rect->w/2;
+		const d2tk_coord_t y4 = rect->y;
+
+		d2tk_core_begin_path(core);
+		d2tk_core_move_to(core, x1, y1);
+		d2tk_core_line_to(core, x2, y2);
+		d2tk_core_line_to(core, x3, y3);
+		d2tk_core_line_to(core, x4, y4);
+		d2tk_core_close_path(core);
+		d2tk_core_color(core, style->stroke_color[triple]);
+		d2tk_core_stroke_width(core, style->border_width);
+		d2tk_core_stroke(core);
+
+		d2tk_core_bbox_pop(core, ref);
+	}
+}
+
+static inline void
+_expose_arcs(app_t *app, node_t node, const d2tk_rect_t *rect)
+{
+	d2tk_frontend_t *dpugl = app->dpugl;
+	d2tk_base_t *base = d2tk_frontend_get_base(dpugl);
+
+	const d2tk_style_t *style = d2tk_base_get_style(base);
+
+	const d2tk_hash_dict_t dict [] = {
+		{ rect, sizeof(d2tk_rect_t) },
+		{ style, sizeof(d2tk_style_t) },
+		{ &node, sizeof(node_t) },
+		{ NULL, 0 }
+	};
+	const uint64_t hash = d2tk_hash_dict(dict);
+
+	d2tk_core_t *core = base->core;
+
+	D2TK_CORE_WIDGET(core, hash, widget)
+	{
+		d2tk_rect_t bnd;
+		d2tk_rect_shrink(&bnd, rect, style->padding);
+
+		const d2tk_triple_t triple = D2TK_TRIPLE_ACTIVE_HOT_FOCUS;
+
+		const size_t ref = d2tk_core_bbox_push(core, true, rect);
+
+		d2tk_core_color(core, style->stroke_color[triple]);
+		d2tk_core_stroke_width(core, style->border_width);
+
+		if(node & NODE_ARCS_A)
 		{
-			//FIXME
+			const d2tk_coord_t r = rect->h/2;
+			const d2tk_coord_t x = rect->x;
+			const d2tk_coord_t y = rect->y;
+
+			d2tk_core_begin_path(core);
+			d2tk_core_arc(core, x, y, r, 0 + 90, 0, false);
+			d2tk_core_stroke(core);
 		}
+		if(node & NODE_ARCS_B)
+		{
+			const d2tk_coord_t r = rect->h/2;
+			const d2tk_coord_t x = rect->x;
+			const d2tk_coord_t y = rect->y + rect->h;
+
+			d2tk_core_begin_path(core);
+			d2tk_core_arc(core, x, y, r, 270 + 90, 270, false);
+			d2tk_core_stroke(core);
+		}
+		if(node & NODE_ARCS_C)
+		{
+			const d2tk_coord_t r = rect->h/2;
+			const d2tk_coord_t x = rect->x + rect->w;
+			const d2tk_coord_t y = rect->y + rect->h;
+
+			d2tk_core_begin_path(core);
+			d2tk_core_arc(core, x, y, r, 180 + 90, 180, false);
+			d2tk_core_stroke(core);
+		}
+		if(node & NODE_ARCS_D)
+		{
+			const d2tk_coord_t r = rect->h/2;
+			const d2tk_coord_t x = rect->x + rect->w;
+			const d2tk_coord_t y = rect->y;
+
+			d2tk_core_begin_path(core);
+			d2tk_core_arc(core, x, y, r, 90 + 90, 90, false);
+			d2tk_core_stroke(core);
+		}
+
+		if(node & NODE_ARCS_E)
+		{
+			const d2tk_coord_t x0 = rect->x;
+			const d2tk_coord_t y0 = rect->y + rect->h/2;
+			const d2tk_coord_t x1 = x0 + rect->w/2;
+			const d2tk_coord_t y1 = y0;
+
+			d2tk_core_begin_path(core);
+			d2tk_core_move_to(core, x0, y0);
+			d2tk_core_line_to(core, x1, y1);
+			d2tk_core_stroke(core);
+		}
+		if(node & NODE_ARCS_F)
+		{
+			const d2tk_coord_t x0 = rect->x + rect->w/2;;
+			const d2tk_coord_t y0 = rect->y + rect->h/2;
+			const d2tk_coord_t x1 = x0;
+			const d2tk_coord_t y1 = y0 + rect->h/2;
+
+			d2tk_core_begin_path(core);
+			d2tk_core_move_to(core, x0, y0);
+			d2tk_core_line_to(core, x1, y1);
+			d2tk_core_stroke(core);
+		}
+		if(node & NODE_ARCS_G)
+		{
+			const d2tk_coord_t x0 = rect->x + rect->w/2;
+			const d2tk_coord_t y0 = rect->y + rect->h/2;
+			const d2tk_coord_t x1 = x0 + rect->w/2;
+			const d2tk_coord_t y1 = y0;
+
+			d2tk_core_begin_path(core);
+			d2tk_core_move_to(core, x0, y0);
+			d2tk_core_line_to(core, x1, y1);
+			d2tk_core_stroke(core);
+		}
+		if(node & NODE_ARCS_H)
+		{
+			const d2tk_coord_t x0 = rect->x + rect->w/2;;
+			const d2tk_coord_t y0 = rect->y;
+			const d2tk_coord_t x1 = x0;
+			const d2tk_coord_t y1 = y0 + rect->h/2;
+
+			d2tk_core_begin_path(core);
+			d2tk_core_move_to(core, x0, y0);
+			d2tk_core_line_to(core, x1, y1);
+			d2tk_core_stroke(core);
+		}
+
+		d2tk_core_bbox_pop(core, ref);
 	}
 }
 
 static inline void
 _expose_body(app_t *app, const d2tk_rect_t *rect)
 {
-	d2tk_frontend_t *dpugl = app->dpugl;
-	d2tk_base_t *base = d2tk_frontend_get_base(dpugl);
+#define M 12
+#define N 12
+	static const node_t grid [M][N] = {
+		{ 0x404, 0x450, 0x450, 0x450, 0x450, 0x450, 0x450, 0x450, 0x402, 0x000, 0x000, 0x000 },
+		{ 0x408, 0x200, 0x450, 0x100, 0x452, 0x200, 0x450, 0x100, 0x401, 0x000, 0x000, 0x000 },
+		{ 0x000, 0x000, 0x000, 0x000, 0x4a0, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000 },
+		{ 0x000, 0x000, 0x000, 0x000, 0x408, 0x200, 0x402, 0x000, 0x000, 0x000, 0x000, 0x000 },
+		{ 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x4a0, 0x000, 0x000, 0x000, 0x000, 0x000 },
+		{ 0x404, 0x200, 0x450, 0x100, 0x450, 0x200, 0x45c, 0x100, 0x000, 0x000, 0x000, 0x000 },
+		{ 0x4a0, 0x000, 0x000, 0x000, 0x000, 0x000, 0x4a0, 0x000, 0x000, 0x000, 0x000, 0x000 },
+		{ 0x4a0, 0x000, 0x000, 0x000, 0x404, 0x200, 0x401, 0x000, 0x000, 0x000, 0x000, 0x000 },
+		{ 0x408, 0x450, 0x450, 0x450, 0x4a2, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000 },
+		{ 0x000, 0x000, 0x000, 0x100, 0x453, 0x200, 0x450, 0x100, 0x450, 0x200, 0x454, 0x100 },
+		{ 0x000, 0x000, 0x000, 0x000, 0x4a0, 0x000, 0x000, 0x000, 0x000, 0x000, 0x4a0, 0x000 },
+		{ 0x000, 0x000, 0x000, 0x000, 0x408, 0x450, 0x450, 0x450, 0x450, 0x200, 0x401, 0x000 }
+	};
 
-#if 0
-	D2TK_BASE_FLOWMATRIX(base, rect, D2TK_ID, flowm)
-	{
-		d2tk_state_t state1 = D2TK_STATE_NONE;
-		d2tk_pos_t pos1 = { -200, -200 }; //FIXME
-
-		D2TK_BASE_FLOWMATRIX_NODE(base, flowm, &pos1, node, &state1)
-		{
-			//FIXME
-		}
-
-		d2tk_state_t state2 = D2TK_STATE_NONE;
-		d2tk_pos_t pos2 = { 200, 200}; //FIXME
-
-		D2TK_BASE_FLOWMATRIX_NODE(base, flowm, &pos2, node, &state2)
-		{
-			//FIXME
-		}
-
-		d2tk_state_t astate = D2TK_STATE_NONE;
-		d2tk_pos_t apos = { 0, -100 }; //FIXME
-
-		D2TK_BASE_FLOWMATRIX_ARC(base, flowm, 2, 2, &pos1, &pos2, &apos, arc, &astate)
-		{
-			//FIXME
-		}
-	}
-#else
-	const d2tk_coord_t S = 100 * app->scale; //FIXME do only once
+	const d2tk_coord_t S = 80 * app->scale; //FIXME do only once
 	D2TK_BASE_TABLE(rect, S, S, D2TK_FLAG_TABLE_ABS, tab)
 	{
 		const d2tk_rect_t *trect = d2tk_table_get_rect(tab);
-		const unsigned x = d2tk_table_get_index_x(tab);
-		const unsigned y = d2tk_table_get_index_y(tab);
+		const unsigned n = d2tk_table_get_index_x(tab);
+		const unsigned m = d2tk_table_get_index_y(tab);
 		const unsigned k = d2tk_table_get_index(tab);
 
-		if( (x == 0) && (y == 1) )
+		if(m >= M)
+		{
+			break;
+		}
+
+		if(n >= N)
+		{
+			continue;
+		}
+
+		node_t node = grid[m][n];
+
+		if(node & NODE_PLUG)
 		{
 			_expose_node(app, k, trect);
 		}
-
-		if( (x == 1) && (y == 0) )
+		else if(node & NODE_CONN)
 		{
-			_expose_node(app, k, trect);
+			_expose_conn(app, trect);
 		}
-		if( (x == 0) && (y == 0) )
+		else if(node & NODE_ARCS)
 		{
-			_expose_conn(app, k, trect);
-		}
-
-		if( (x == 2) && (y == 2) )
-		{
-			_expose_node(app, k, trect);
-		}
-		if( (x == 0) && (y == 2) )
-		{
-			_expose_conn(app, k, trect);
-		}
-
-		if( (x == 3) && (y == 1) )
-		{
-			_expose_node(app, k, trect);
-		}
-
-		if( (x == 1) && (y == 1) )
-		{
-			_expose_conn(app, k, trect);
-		}
-		if( (x == 1) && (y == 2) )
-		{
-			_expose_conn(app, k, trect);
-		}
-		if( (x == 2) && (y == 1) )
-		{
-			_expose_conn(app, k, trect);
+			_expose_arcs(app, node, trect);
 		}
 	}
-#endif
+#undef N
+#undef M
 }
 
 static int
