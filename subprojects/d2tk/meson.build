@@ -122,7 +122,9 @@ conf_data.set('MICRO_VERSION', version[2])
 add_project_arguments('-D_GNU_SOURCE', language : 'c')
 
 if build_debug_overlay
-	add_project_arguments('-DD2TK_DEBUG', language : 'c')
+	conf_data.set('D2TK_DEBUG', 1)
+else
+	conf_data.set('D2TK_DEBUG', 0)
 endif
 
 lib_srcs = [
