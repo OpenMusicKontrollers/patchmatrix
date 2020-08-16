@@ -667,6 +667,9 @@ _expose_arcs(app_t *app, node_t node, const d2tk_rect_t *rect)
 static inline void
 _expose_body(app_t *app, const d2tk_rect_t *rect)
 {
+	d2tk_frontend_t *dpugl = app->dpugl;
+	d2tk_base_t *base = d2tk_frontend_get_base(dpugl);
+
 #define M 12
 #define N 12
 	static const node_t grid [M][N] = {
@@ -684,37 +687,49 @@ _expose_body(app_t *app, const d2tk_rect_t *rect)
 		{ 0x000, 0x000, 0x000, 0x000, 0x408, 0x450, 0x450, 0x450, 0x450, 0x200, 0x401, 0x000 }
 	};
 
-	const d2tk_coord_t S = 80 * app->scale; //FIXME do only once
-	D2TK_BASE_TABLE(rect, S, S, D2TK_FLAG_TABLE_ABS, tab)
+	const unsigned S = 16; //FIXME make scalable
+	const d2tk_coord_t l = rect->w / S;
+	const unsigned T = rect->h / l;
+
+	const uint32_t vmax [2] = { 512, 512};
+	const uint32_t vnum [2] = { S, T };
+	D2TK_BASE_SCROLLBAR(base, rect, D2TK_ID, D2TK_FLAG_SCROLL, vmax, vnum, scroll)
 	{
-		const d2tk_rect_t *trect = d2tk_table_get_rect(tab);
-		const unsigned n = d2tk_table_get_index_x(tab);
-		const unsigned m = d2tk_table_get_index_y(tab);
-		const unsigned k = d2tk_table_get_index(tab);
+		const d2tk_rect_t *srect = d2tk_scrollbar_get_rect(scroll);
+		const unsigned s = d2tk_scrollbar_get_offset_x(scroll);
+		const unsigned t = d2tk_scrollbar_get_offset_y(scroll);
 
-		if(m >= M)
+		D2TK_BASE_TABLE(srect, l, l, D2TK_FLAG_TABLE_ABS, tab)
 		{
-			break;
-		}
+			const d2tk_rect_t *trect = d2tk_table_get_rect(tab);
+			const unsigned n = d2tk_table_get_index_x(tab) + s;
+			const unsigned m = d2tk_table_get_index_y(tab) + t;
+			const unsigned k = d2tk_table_get_index(tab);
 
-		if(n >= N)
-		{
-			continue;
-		}
+			if(m >= M)
+			{
+				break;
+			}
 
-		node_t node = grid[m][n];
+			if(n >= N)
+			{
+				continue;
+			}
 
-		if(node & NODE_PLUG)
-		{
-			_expose_node(app, k, trect);
-		}
-		else if(node & NODE_CONN)
-		{
-			_expose_conn(app, trect);
-		}
-		else if(node & NODE_ARCS)
-		{
-			_expose_arcs(app, node, trect);
+			node_t node = grid[m][n];
+
+			if(node & NODE_PLUG)
+			{
+				_expose_node(app, k, trect);
+			}
+			else if(node & NODE_CONN)
+			{
+				_expose_conn(app, trect);
+			}
+			else if(node & NODE_ARCS)
+			{
+				_expose_arcs(app, node, trect);
+			}
 		}
 	}
 #undef N
