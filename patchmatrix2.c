@@ -469,7 +469,7 @@ _expose_node(app_t *app, unsigned k, const d2tk_rect_t *rect)
 	char lbl [16];
 	const size_t lbl_len = snprintf(lbl, sizeof(lbl), "Node-%02x", k);
 
-	d2tk_rect_t bnd;
+	d2tk_rect_t bnd = *rect;
 	d2tk_rect_shrink(&bnd, rect, -rect->h/4);
 
 	D2TK_BASE_FRAME(base, &bnd, lbl_len, lbl, frm)
@@ -687,9 +687,9 @@ _expose_body(app_t *app, const d2tk_rect_t *rect)
 		{ 0x000, 0x000, 0x000, 0x000, 0x408, 0x450, 0x450, 0x450, 0x450, 0x200, 0x401, 0x000 }
 	};
 
-	const unsigned S = 16; //FIXME make scalable
-	const d2tk_coord_t l = rect->w / S;
-	const unsigned T = rect->h / l;
+#define L 64 //FIXME make configurable
+	const unsigned S = rect->w / L;
+	const unsigned T = rect->h / L;
 
 	const uint32_t vmax [2] = { 512, 512};
 	const uint32_t vnum [2] = { S, T };
@@ -699,7 +699,7 @@ _expose_body(app_t *app, const d2tk_rect_t *rect)
 		const unsigned s = d2tk_scrollbar_get_offset_x(scroll);
 		const unsigned t = d2tk_scrollbar_get_offset_y(scroll);
 
-		D2TK_BASE_TABLE(srect, l, l, D2TK_FLAG_TABLE_ABS, tab)
+		D2TK_BASE_TABLE(srect, L, L, D2TK_FLAG_TABLE_ABS, tab)
 		{
 			const d2tk_rect_t *trect = d2tk_table_get_rect(tab);
 			const unsigned n = d2tk_table_get_index_x(tab) + s;
@@ -732,6 +732,7 @@ _expose_body(app_t *app, const d2tk_rect_t *rect)
 			}
 		}
 	}
+#undef L
 #undef N
 #undef M
 }
