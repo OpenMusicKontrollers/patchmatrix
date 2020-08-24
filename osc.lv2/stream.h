@@ -1374,17 +1374,36 @@ lv2_osc_stream_run(LV2_OSC_Stream *stream)
 	return ev;
 }
 
+static int
+lv2_osc_stream_get_file_descriptors(LV2_OSC_Stream *stream, int fds [2])
+{
+	if(!fds)
+	{
+		return 1;
+	}
+
+	fds[0] = stream->sock;
+	fds[1] = stream->fd;
+}
+
 static LV2_OSC_Enum
 lv2_osc_stream_pollin(LV2_OSC_Stream *stream, int timeout_ms)
 {
+	int fd [2];
+
+	if(lv2_osc_stream_get_file_descriptors(stream, fd) != 0)
+	{
+		return LV2_OSC_STREAM_ERRNO(LV2_OSC_NONE, EBADF);
+	}
+
 	struct pollfd fds [2] = {
 		[0] = {
-			.fd = stream->sock,
+			.fd = fd[0],
 			.events = POLLIN,
 			.revents = 0
 		},
 		[1] = {
-			.fd = stream->fd,
+			.fd = fd[1],
 			.events = POLLIN,
 			.revents = 0
 		}

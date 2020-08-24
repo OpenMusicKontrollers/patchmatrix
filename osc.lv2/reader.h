@@ -580,6 +580,9 @@ _lv2_osc_trees_internal(LV2_OSC_Reader *reader, const char *path, const char *fr
 	LV2_OSC_Arg *arg, const LV2_OSC_Tree *trees, void *data)
 {
 	const char *ptr = strchr(from, '/');
+	const char *pattern = strpbrk(from, "*?[]{}/");
+	const bool has_pattern = pattern && (pattern[0] != '/');
+	(void)has_pattern; //FIXME
 
 	const size_t len = ptr
 		? (size_t)(ptr - from)
