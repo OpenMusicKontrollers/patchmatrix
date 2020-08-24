@@ -38,6 +38,9 @@ d2tk_frontend_step(d2tk_frontend_t *dpugl);
 D2TK_API int
 d2tk_frontend_poll(d2tk_frontend_t *dpugl, double timeout);
 
+D2TK_API int
+d2tk_frontend_get_file_descriptor(d2tk_frontend_t *dpugl);
+
 D2TK_API void
 d2tk_frontend_run(d2tk_frontend_t *dpugl, const sig_atomic_t *done);
 
