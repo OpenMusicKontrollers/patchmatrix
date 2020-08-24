@@ -633,6 +633,13 @@ d2tk_frontend_poll(d2tk_frontend_t *fbdev __attribute__((unused)),
 	return 0;
 }
 
+D2TK_API int
+d2tk_frontend_get_file_descriptor(d2tk_frontend_t *dpugl __attribute__((unused)))
+{
+	//FIXME not implemented, yet
+	return -1;
+}
+
 D2TK_API void
 d2tk_frontend_run(d2tk_frontend_t *fbdev, const sig_atomic_t *done)
 {
