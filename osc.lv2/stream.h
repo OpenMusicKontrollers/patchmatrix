@@ -1384,6 +1384,8 @@ lv2_osc_stream_get_file_descriptors(LV2_OSC_Stream *stream, int fds [2])
 
 	fds[0] = stream->sock;
 	fds[1] = stream->fd;
+
+	return 0;
 }
 
 static LV2_OSC_Enum
