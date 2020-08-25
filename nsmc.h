@@ -123,6 +123,9 @@ nsmc_free(nsmc_t *nsm);
 NSMC_API void
 nsmc_pollin(nsmc_t *nsm, int timeout_ms);
 
+NSMC_API int
+nsmc_get_file_descriptors(nsmc_t *nsm, int fd[2]);
+
 NSMC_API void
 nsmc_run(nsmc_t *nsm);
 
@@ -217,6 +220,8 @@ struct _nsmc_t {
 	varchunk_t *rx;
 
 	nsmc_capability_t host_capability;
+
+	bool again;
 };
 
 static const char *nsmc_capability_labels [NSMC_CAPABILITY_MAX] = {
@@ -232,14 +237,14 @@ static const char *nsmc_capability_labels [NSMC_CAPABILITY_MAX] = {
 static int
 _nsmc_message_varlist(nsmc_t *nsm, const char *path, const char *fmt, va_list args)
 {
-	if(!nsm)
-	{
-		return 1;
-	}
-
 	if(!nsmc_managed())
 	{
 		return 0;
+	}
+
+	if(!nsm)
+	{
+		return 1;
 	}
 
 	size_t max = 0;
@@ -264,6 +269,8 @@ _nsmc_message_varlist(nsmc_t *nsm, const char *path, const char *fmt, va_list ar
 	}
 
 	varchunk_write_advance(nsm->tx, written);
+
+	nsm->again = true;
 
 	return 0;
 }
@@ -722,6 +729,16 @@ nsmc_new(const char *call, const char *exe, const char *fallback_path,
 			fprintf(stderr, "NSM load failed: '%s'\n", fallback_path);
 			goto fail;
 		}
+
+		const nsmc_event_t ev_show = {
+			.type = NSMC_EVENT_TYPE_SHOW
+		};
+
+		if(nsm->callback(nsm->data, &ev_show) != 0)
+		{
+			fprintf(stderr, "NSM show failed: '%s'\n", fallback_path);
+			goto fail;
+		}
 	}
 
 	return nsm;
@@ -776,36 +793,54 @@ nsmc_pollin(nsmc_t *nsm, int timeout_ms)
 		return;
 	}
 
-	const LV2_OSC_Enum ev = lv2_osc_stream_pollin(&nsm->stream, timeout_ms);
+	nsm->again = true;
 
-	if(ev & LV2_OSC_ERR)
+	while(nsm->again)
 	{
-		nsm->connected = false;
-	}
+		nsm->again = false;
 
-	if(nsm->connectionless || (ev & LV2_OSC_CONN) )
-	{
-		if(!nsm->connected)
+		const LV2_OSC_Enum ev = lv2_osc_stream_pollin(&nsm->stream, timeout_ms);
+
+		if(ev & LV2_OSC_ERR)
 		{
-			_announce(nsm); // initial announcement
-			nsm->connected = true;
+			nsm->connected = false;
+		}
+
+		if(nsm->connectionless || (ev & LV2_OSC_CONN) )
+		{
+			if(!nsm->connected)
+			{
+				_announce(nsm); // initial announcement
+				nsm->connected = true;
+			}
+		}
+
+		if(ev & LV2_OSC_SEND)
+		{
+			nsm->again = true;
+		}
+
+		if(ev & LV2_OSC_RECV)
+		{
+			const uint8_t *rx;
+			size_t size;
+			while( (rx = varchunk_read_request(nsm->rx, &size)) )
+			{
+				LV2_OSC_Reader reader;
+
+				lv2_osc_reader_initialize(&reader, rx, size);
+				lv2_osc_reader_match(&reader, size, tree_root, nsm);
+
+				varchunk_read_advance(nsm->rx);
+			}
 		}
 	}
+}
 
-	if(ev & LV2_OSC_RECV)
-	{
-		const uint8_t *rx;
-		size_t size;
-		while( (rx = varchunk_read_request(nsm->rx, &size)) )
-		{
-			LV2_OSC_Reader reader;
-
-			lv2_osc_reader_initialize(&reader, rx, size);
-			lv2_osc_reader_match(&reader, size, tree_root, nsm);
-
-			varchunk_read_advance(nsm->rx);
-		}
-	}
+NSMC_API int
+nsmc_get_file_descriptors(nsmc_t *nsm, int fd[2])
+{
+	return lv2_osc_stream_get_file_descriptors(&nsm->stream, fd);
 }
 
 NSMC_API void
@@ -817,11 +852,6 @@ nsmc_run(nsmc_t *nsm)
 NSMC_API int
 nsmc_opened(nsmc_t *nsm, int status)
 {
-	if(!nsm)
-	{
-		return 1;
-	}
-
 	if(status == 0)
 	{
 		return _nsmc_message_vararg(nsm, "/reply", "ss",
@@ -835,33 +865,18 @@ nsmc_opened(nsmc_t *nsm, int status)
 NSMC_API int
 nsmc_shown(nsmc_t *nsm)
 {
-	if(!nsm)
-	{
-		return 1;
-	}
-
 	return _nsmc_message_vararg(nsm, "/nsm/client/gui_is_shown", "");
 }
 
 NSMC_API int
 nsmc_hidden(nsmc_t *nsm)
 {
-	if(!nsm)
-	{
-		return 1;
-	}
-
 	return _nsmc_message_vararg(nsm, "/nsm/client/gui_is_hidden", "");
 }
 
 NSMC_API int
 nsmc_saved(nsmc_t *nsm, int status)
 {
-	if(!nsm)
-	{
-		return 1;
-	}
-
 	if(status == 0)
 	{
 		return _nsmc_message_vararg(nsm, "/reply", "ss",
