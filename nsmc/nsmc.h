@@ -123,6 +123,9 @@ nsmc_free(nsmc_t *nsm);
 NSMC_API void
 nsmc_pollin(nsmc_t *nsm, int timeout_ms);
 
+NSMC_API int
+nsmc_get_file_descriptors(nsmc_t *nsm, int fd[2]);
+
 NSMC_API void
 nsmc_run(nsmc_t *nsm);
 
@@ -832,6 +835,12 @@ nsmc_pollin(nsmc_t *nsm, int timeout_ms)
 			}
 		}
 	}
+}
+
+NSMC_API int
+nsmc_get_file_descriptors(nsmc_t *nsm, int fd[2])
+{
+	return lv2_osc_stream_get_file_descriptors(&nsm->stream, fd);
 }
 
 NSMC_API void
