@@ -961,7 +961,7 @@ main(int argc, char **argv)
 
 	while(!atomic_load_explicit(&done, memory_order_acquire))
 	{
-		int fd [3] = { 0, 0, 0 };
+		int fd [3] = { -1, -1, -1 };
 
 		if(app.dpugl)
 		{
