@@ -19,7 +19,6 @@
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
-#include <pthread.h>
 #include <sys/stat.h>
 
 #include <lua.h>
@@ -88,11 +87,10 @@ struct _app_t {
 	app_monitor_t *monitors [MAX_MONITORS];
 	char *path;
 
-	atomic_bool gui_visible;
 	float scale;
 	int32_t header_height;
 	d2tk_frontend_t *dpugl;
-	pthread_t ui_thread;
+	d2tk_pugl_config_t dconfig;
 };
 
 static atomic_bool done = ATOMIC_VAR_INIT(false);
@@ -765,73 +763,59 @@ _expose(void *data, d2tk_coord_t w, d2tk_coord_t h)
 	return 0;
 }
 
-static void *
-_ui_thread(void *data)
-{
-	app_t *app = data;
-
-	d2tk_pugl_config_t config;
-	uintptr_t widget;
-
-	const d2tk_coord_t w = 800;
-	const d2tk_coord_t h = 800;
-
-	memset(&config, 0x0, sizeof(config));
-	config.bundle_path = "./"; //FIXME
-	config.min_w = w/2;
-	config.min_h = h/2;
-	config.w = w;
-	config.h = h;
-	config.fixed_size = false;
-	config.fixed_aspect = false;
-	config.expose = _expose;
-	config.data = app;
-
-	app->dpugl = d2tk_pugl_new(&config, &widget);
-	if(!app->dpugl)
-	{	
-		return NULL;
-	}
-
-	app->scale = d2tk_frontend_get_scale(app->dpugl);
-
-	app->header_height = 32 * app->scale;
-
-	while(atomic_load_explicit(&app->gui_visible, memory_order_acquire))
-	{
-		if(d2tk_frontend_poll(app->dpugl, 0.1) != 0)
-		{
-			atomic_store_explicit(&app->gui_visible, false, memory_order_release);
-		}
-	}
-
-	d2tk_frontend_free(app->dpugl);
-
-	return NULL;
-}
-
 static int
 _show(app_t *app)
 {
-	if(atomic_exchange(&app->gui_visible, true) == true)
+	if(app->dpugl)
 	{
 		return 0;
 	}
 
+	uintptr_t widget;
+
+	const d2tk_coord_t w = 800;
+	const d2tk_coord_t h = 800;
+	d2tk_pugl_config_t *config = &app->dconfig;
+
+	memset(config, 0x0, sizeof(d2tk_pugl_config_t));
+	config->bundle_path = "./"; //FIXME
+	config->min_w = w/2;
+	config->min_h = h/2;
+	config->w = w;
+	config->h = h;
+	config->fixed_size = false;
+	config->fixed_aspect = false;
+	config->expose = _expose;
+	config->data = app;
+
+	app->dpugl = d2tk_pugl_new(config, &widget);
+	if(!app->dpugl)
+	{	
+		return 1;
+	}
+
+	app->scale = d2tk_frontend_get_scale(app->dpugl);
+	app->header_height = 32 * app->scale;
+
+	d2tk_frontend_poll(app->dpugl, -1); // run it at least once
+
 	app->session.visibility = true;
-	return pthread_create(&app->ui_thread, NULL, _ui_thread, app);
+
+	return 0;
 }
 
 static int
 _hide(app_t *app)
 {
-	if(atomic_exchange(&app->gui_visible, false) == false)
+	if(!app->dpugl)
 	{
 		return 0;
 	}
 
+	d2tk_frontend_free(app->dpugl);
+	app->dpugl = NULL;
+
 	app->session.visibility = false;
-	pthread_join(app->ui_thread, NULL);
 
 	return 0;
 }
@@ -962,8 +946,6 @@ main(int argc, char **argv)
 
 	_config_load(&app);
 
-	atomic_init(&app.gui_visible, false);
-
 	const char *exe = strrchr(argv[0], '/');
 	exe = exe ? exe + 1 : argv[0];
 	const char *fallback_path = argv[optind]
@@ -979,22 +961,48 @@ main(int argc, char **argv)
 
 	while(!atomic_load_explicit(&done, memory_order_acquire))
 	{
-		if(nsmc_managed())
+		int fd [3] = { 0, 0, 0 };
+
+		if(app.dpugl)
 		{
-			nsmc_pollin(app.nsm, 1000);
-		}
-		else
-		{
-			usleep(1000);
+			fd[0] = d2tk_frontend_get_file_descriptor(app.dpugl);
 		}
 
-		// check if user closed the gui
-		const bool old_visibility = app.session.visibility;
-		app.session.visibility = atomic_load_explicit(&app.gui_visible, memory_order_acquire);
-		if(old_visibility && !app.session.visibility)
+		nsmc_get_file_descriptors(app.nsm, &fd[1]);
+
+		struct pollfd fds [3] = {
+			[0] = {
+				.fd = fd[0],
+				.events = POLLIN,
+				.revents = 0
+			},
+			[1] = {
+				.fd = fd[1],
+				.events = POLLIN,
+				.revents = 0
+			},
+			[2] = {
+				.fd = fd[2],
+				.events = POLLIN,
+				.revents = 0
+			}
+		};
+
+		if(poll(fds, 3, 1000 / 50) > 0)
 		{
-			_hide(&app);
-			nsmc_hidden(app.nsm);
+			if(fds[0].revents & POLLIN)
+			{
+				if(d2tk_frontend_step(app.dpugl))
+				{
+					_hide(&app);
+					nsmc_hidden(app.nsm);
+				}
+			}
+
+			if( (fds[1].revents & POLLIN) || (fds[2].revents & POLLIN) )
+			{
+				nsmc_run(app.nsm);
+			}
 		}
 	}
 
