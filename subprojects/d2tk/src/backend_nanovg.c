@@ -289,7 +289,7 @@ d2tk_nanovg_end(void *data __attribute__((unused)),
 	nvgFillPaint(ctx, fg);
 	nvgFill(ctx);
 
-#ifdef D2TK_DEBUG
+#if D2TK_DEBUG
 	{
 		d2tk_rect_t rect;
 		uint32_t *pixels = d2tk_core_get_pixels(core, &rect);
@@ -565,7 +565,7 @@ d2tk_nanovg_process(void *data, d2tk_core_t *core, const d2tk_com_t *com,
 
 					if(!*sprite)
 					{
-#ifdef D2TK_DEBUG
+#if D2TK_DEBUG
 						//fprintf(stderr, "\tcreating sprite\n");
 #endif
 						NVGLUframebuffer *fbo = nvgluCreateFramebuffer(ctx, body->clip.w, body->clip.h, NVG_IMAGE_NEAREST);
@@ -594,7 +594,7 @@ d2tk_nanovg_process(void *data, d2tk_core_t *core, const d2tk_com_t *com,
 					}
 					else
 					{
-#ifdef D2TK_DEBUG
+#if D2TK_DEBUG
 						//fprintf(stderr, "\texisting sprite\n");
 #endif
 					}
@@ -794,7 +794,7 @@ d2tk_nanovg_process(void *data, d2tk_core_t *core, const d2tk_com_t *com,
 
 					if(!*sprite)
 					{
-#ifdef D2TK_DEBUG
+#if D2TK_DEBUG
 						//fprintf(stderr, "\tcreating sprite\n");
 #endif
 						NVGLUframebuffer *fbo = nvgluCreateFramebuffer(ctx, body->w, body->h, NVG_IMAGE_NEAREST);
@@ -820,7 +820,7 @@ d2tk_nanovg_process(void *data, d2tk_core_t *core, const d2tk_com_t *com,
 					}
 					else
 					{
-#ifdef D2TK_DEBUG
+#if D2TK_DEBUG
 						//fprintf(stderr, "\texisting sprite\n");
 #endif
 					}

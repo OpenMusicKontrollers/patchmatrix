@@ -180,7 +180,7 @@ d2tk_cairo_post(void *data, d2tk_core_t *core __attribute__((unused)),
 		return true; // do enter 2nd pass
 	}
 
-#ifdef D2TK_DEBUG //FIXME needs multiple buffers to work
+#if D2TK_DEBUG //FIXME needs multiple buffers to work
 	{
 		d2tk_rect_t rect;
 		uint32_t *pixels = d2tk_core_get_pixels(core, &rect);
@@ -531,7 +531,7 @@ d2tk_cairo_process(void *data, d2tk_core_t *core, const d2tk_com_t *com,
 
 					if(!*sprite)
 					{
-#ifdef D2TK_DEBUG
+#if D2TK_DEBUG
 						//fprintf(stderr, "\tcreating sprite\n");
 #endif
 						const size_t stride = cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32,
@@ -560,7 +560,7 @@ d2tk_cairo_process(void *data, d2tk_core_t *core, const d2tk_com_t *com,
 					}
 					else
 					{
-#ifdef D2TK_DEBUG
+#if D2TK_DEBUG
 					//fprintf(stderr, "\texisting sprite\n");
 #endif
 					}
