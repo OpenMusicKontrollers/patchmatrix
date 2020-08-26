@@ -228,7 +228,7 @@ _d2tk_sprites_gc(d2tk_core_t *core)
 
 		if(sprite->body)
 		{
-#ifdef D2TK_DEBUG
+#if D2TK_DEBUG
 			fprintf(stderr, "\tgc sprites (%08"PRIx64")\n", sprite->hash);
 #endif
 			core->driver->sprite_free(core->data, sprite->type, sprite->body);
@@ -333,7 +333,7 @@ _d2tk_memcaches_gc(d2tk_core_t *core)
 
 		if(memcache->body)
 		{
-#ifdef D2TK_DEBUG
+#if D2TK_DEBUG
 			fprintf(stderr, "\tgc memcaches (%08"PRIx64")\n", memcache->hash);
 #endif
 			d2tk_widget_body_t *body = (d2tk_widget_body_t *)memcache->body;
@@ -1322,7 +1322,7 @@ _d2tk_diff(d2tk_core_t *core, d2tk_com_t *curcom_ref, d2tk_com_t *oldcom_ref)
 						continue;
 					}
 
-#ifdef D2TK_DEBUG
+#if D2TK_DEBUG
 					d2tk_body_bbox_t *curbbox2 = &curcom2->body->bbox;
 
 					fprintf(stderr,
@@ -1338,7 +1338,7 @@ _d2tk_diff(d2tk_core_t *core, d2tk_com_t *curcom_ref, d2tk_com_t *oldcom_ref)
 
 				if(curcom->body->bbox.container && oldcom->body->bbox.container)
 				{
-#ifdef D2TK_DEBUG
+#if D2TK_DEBUG
 					fprintf(stderr, "\t   comparing nested containers\n");
 #endif
 					_d2tk_diff(core, curcom, oldcom);
@@ -1353,7 +1353,7 @@ _d2tk_diff(d2tk_core_t *core, d2tk_com_t *curcom_ref, d2tk_com_t *oldcom_ref)
 
 		if(!match)
 		{
-#ifdef D2TK_DEBUG
+#if D2TK_DEBUG
 			d2tk_body_bbox_t *oldbbox = &oldcom->body->bbox;
 
 			fprintf(stderr,
@@ -1375,7 +1375,7 @@ _d2tk_diff(d2tk_core_t *core, d2tk_com_t *curcom_ref, d2tk_com_t *oldcom_ref)
 			continue;
 		}
 
-#ifdef D2TK_DEBUG
+#if D2TK_DEBUG
 		d2tk_body_bbox_t *curbbox2 = &curcom2->body->bbox;
 
 		fprintf(stderr,
@@ -1409,7 +1409,7 @@ d2tk_core_post(d2tk_core_t *core)
 
 	if(core->full_refresh)
 	{
-#ifdef D2TK_DEBUG
+#if D2TK_DEBUG
 		fprintf(stderr,
 			"\tfull_refresh (%"PRIu32" %"PRIu32" %"PRIu32" %"PRIu32")\n",
 			0, 0, core->w, core->h);
@@ -1454,7 +1454,7 @@ d2tk_core_post(d2tk_core_t *core)
 			aoi = &tmp;
 		}
 
-#ifdef D2TK_DEBUG
+#if D2TK_DEBUG
 		fprintf(stderr, "\tnfills: %zu\n", bitmap->nfills);
 #endif
 		for(unsigned pass = 0; pass < 2; pass++)

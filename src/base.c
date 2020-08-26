@@ -609,7 +609,7 @@ d2tk_base_is_active_hot(d2tk_base_t *base, d2tk_id_t id,
 		{
 			state |= D2TK_STATE_FOCUS_OUT;
 			_d2tk_flip_clear_old(&base->focusitem); // clear previous focus
-#ifdef D2TK_DEBUG
+#if D2TK_DEBUG
 			fprintf(stderr, "\tfocus out 0x%016"PRIx64"\n", id);
 #endif
 		}
@@ -622,7 +622,7 @@ d2tk_base_is_active_hot(d2tk_base_t *base, d2tk_id_t id,
 			else
 			{
 				state |= D2TK_STATE_FOCUS_IN;
-#ifdef D2TK_DEBUG
+#if D2TK_DEBUG
 				fprintf(stderr, "\tfocus in 0x%016"PRIx64"\n", id);
 #endif
 				_d2tk_base_change_focus(base);

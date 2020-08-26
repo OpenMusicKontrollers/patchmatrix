@@ -488,6 +488,15 @@ d2tk_frontend_poll(d2tk_frontend_t *dpugl, double timeout)
 D2TK_API int
 d2tk_frontend_get_file_descriptor(d2tk_frontend_t *dpugl)
 {
+#if defined(__APPLE__) || de
+	//FIXME
+	(void)dpugl;
+	return -1;
+#elif defined(_WIN32)
+	//FIXME
+	(void)dpugl;
+	return -1;
+#else
 	Display *disp = puglGetNativeWorld(dpugl->world);
 
 	if(!disp)
@@ -496,6 +505,7 @@ d2tk_frontend_get_file_descriptor(d2tk_frontend_t *dpugl)
 	}
 
 	return ConnectionNumber(disp);
+#endif
 }
 
 D2TK_API int
