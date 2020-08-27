@@ -467,10 +467,7 @@ _expose_node(app_t *app, unsigned k, const d2tk_rect_t *rect)
 	char lbl [16];
 	const size_t lbl_len = snprintf(lbl, sizeof(lbl), "Node-%02x", k);
 
-	d2tk_rect_t bnd = *rect;
-	d2tk_rect_shrink(&bnd, rect, -rect->h/4);
-
-	D2TK_BASE_FRAME(base, &bnd, lbl_len, lbl, frm)
+	D2TK_BASE_FRAME(base, rect, lbl_len, lbl, frm)
 	{
 		const d2tk_rect_t *frect = d2tk_frame_get_rect(frm);
 
@@ -565,8 +562,30 @@ _expose_arcs(app_t *app, node_t node, const d2tk_rect_t *rect)
 
 		const size_t ref = d2tk_core_bbox_push(core, true, rect);
 
-		d2tk_core_color(core, style->stroke_color[triple]);
 		d2tk_core_stroke_width(core, style->border_width);
+
+		uint32_t grid_color = style->stroke_color[triple];
+		grid_color = (grid_color & 0xffffff00) | ( (grid_color & 0xff) >> 3 );
+
+		if( !(node & (NODE_ARCS_D & NODE_ARCS_F)) )
+		{
+			d2tk_core_begin_path(core);
+			d2tk_core_move_to(core, rect->x, rect->y + rect->h/2);
+			d2tk_core_line_to(core, rect->x + rect->w, rect->y + rect->h/2);
+			d2tk_core_color(core, grid_color);
+			d2tk_core_stroke(core);
+		}
+
+		if( !(node & (NODE_ARCS_E & NODE_ARCS_G)) )
+		{
+			d2tk_core_begin_path(core);
+			d2tk_core_move_to(core, rect->x + rect->w/2, rect->y);
+			d2tk_core_line_to(core, rect->x + rect->w/2, rect->y + rect->h);
+			d2tk_core_color(core, grid_color);
+			d2tk_core_stroke(core);
+		}
+
+		d2tk_core_color(core, style->stroke_color[triple]);
 
 		if(node & NODE_ARCS_A)
 		{
@@ -724,7 +743,7 @@ _expose_body(app_t *app, const d2tk_rect_t *rect)
 			{
 				_expose_conn(app, trect);
 			}
-			else if(node & NODE_ARCS)
+			else
 			{
 				_expose_arcs(app, node, trect);
 			}
@@ -1004,6 +1023,8 @@ main(int argc, char **argv)
 				nsmc_run(app.nsm);
 			}
 		}
+
+		nsmc_run(app.nsm);
 	}
 
 	nsmc_free(app.nsm);
