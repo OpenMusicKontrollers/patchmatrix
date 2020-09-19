@@ -1,5 +1,5 @@
 /*
-  Copyright 2012-2019 David Robillard <http://drobilla.net>
+  Copyright 2012-2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -15,13 +15,14 @@
 */
 
 /**
-   @file win_gl.c OpenGL graphics backend for Windows.
+   @file win_gl.c
+   @brief OpenGL graphics backend for Windows.
 */
 
+#include "pugl/detail/stub.h"
 #include "pugl/detail/types.h"
 #include "pugl/detail/win.h"
 #include "pugl/pugl_gl.h"
-#include "pugl/pugl_stub.h"
 
 #include <windows.h>
 
@@ -35,7 +36,6 @@
 #define WGL_SUPPORT_OPENGL_ARB    0x2010
 #define WGL_DOUBLE_BUFFER_ARB     0x2011
 #define WGL_PIXEL_TYPE_ARB        0x2013
-#define WGL_COLOR_BITS_ARB        0x2014
 #define WGL_RED_BITS_ARB          0x2015
 #define WGL_GREEN_BITS_ARB        0x2017
 #define WGL_BLUE_BITS_ARB         0x2019
@@ -49,7 +49,6 @@
 
 #define WGL_CONTEXT_MAJOR_VERSION_ARB 0x2091
 #define WGL_CONTEXT_MINOR_VERSION_ARB 0x2092
-#define WGL_CONTEXT_LAYER_PLANE_ARB   0x2093
 #define WGL_CONTEXT_FLAGS_ARB         0x2094
 #define WGL_CONTEXT_PROFILE_MASK_ARB  0x9126
 
@@ -295,7 +294,7 @@ puglGetProcAddress(const char* name)
 }
 
 const PuglBackend*
-puglGlBackend()
+puglGlBackend(void)
 {
 	static const PuglBackend backend = {puglWinGlConfigure,
 	                                    puglWinGlCreate,

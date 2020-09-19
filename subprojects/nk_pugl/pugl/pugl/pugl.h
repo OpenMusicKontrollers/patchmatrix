@@ -1,5 +1,5 @@
 /*
-  Copyright 2012-2020 David Robillard <http://drobilla.net>
+  Copyright 2012-2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -15,7 +15,8 @@
 */
 
 /**
-   @file pugl.h Pugl API.
+   @file pugl.h
+   @brief Pugl API.
 */
 
 #ifndef PUGL_PUGL_H
@@ -52,6 +53,12 @@
 #    endif
 #endif
 
+#if defined(__GNUC__)
+#    define PUGL_CONST_FUNC __attribute__((const))
+#else
+#    define PUGL_CONST_FUNC
+#endif
+
 #ifdef __cplusplus
 #	define PUGL_BEGIN_DECLS extern "C" {
 #	define PUGL_END_DECLS }
@@ -63,8 +70,12 @@
 PUGL_BEGIN_DECLS
 
 /**
-   @defgroup pugl_api Pugl
+   @defgroup pugl Pugl
    A minimal portable API for embeddable GUIs.
+   @{
+
+   @defgroup pugl_c C API
+   Public C API.
    @{
 */
 
@@ -87,7 +98,7 @@ typedef struct {
    Event definitions.
 
    All updates to the view happen via events, which are dispatched to the
-   view's #PuglEventFunc by Pugl.  Most events map directly to one from the
+   view's event function by Pugl.  Most events map directly to one from the
    underlying window system, but some are constructed by Pugl itself so there
    is not necessarily a direct correspondence.
 
@@ -210,7 +221,8 @@ typedef enum {
    Common flags for all event types.
 */
 typedef enum {
-	PUGL_IS_SEND_EVENT = 1 ///< Event is synthetic
+	PUGL_IS_SEND_EVENT = 1, ///< Event is synthetic
+	PUGL_IS_HINT       = 2  ///< Event is a hint (not direct user input)
 } PuglEventFlag;
 
 /**
@@ -226,6 +238,22 @@ typedef enum {
 	PUGL_CROSSING_GRAB,   ///< Crossing due to a grab
 	PUGL_CROSSING_UNGRAB  ///< Crossing due to a grab release
 } PuglCrossingMode;
+
+/**
+   Scroll direction.
+
+   Describes the direction of a #PuglEventScroll along with whether the scroll
+   is a "smooth" scroll.  The discrete directions are for devices like mouse
+   wheels with constrained axes, while a smooth scroll is for those with
+   arbitrary scroll direction freedom, like some touchpads.
+*/
+typedef enum {
+	PUGL_SCROLL_UP,    ///< Scroll up
+	PUGL_SCROLL_DOWN,  ///< Scroll down
+	PUGL_SCROLL_LEFT,  ///< Scroll left
+	PUGL_SCROLL_RIGHT, ///< Scroll right
+	PUGL_SCROLL_SMOOTH ///< Smooth scroll in any direction
+} PuglScrollDirection;
 
 /**
    Common header for all event structs.
@@ -322,7 +350,6 @@ typedef struct {
 	double         y;      ///< View-relative Y coordinate
 	double         width;  ///< Width of exposed region
 	double         height; ///< Height of exposed region
-	int            count;  ///< Number of expose events to follow
 } PuglEventExpose;
 
 /**
@@ -342,9 +369,9 @@ typedef PuglEventAny PuglEventClose;
    view with the keyboard focus will receive any key press or release events.
 */
 typedef struct {
-	PuglEventType  type;  ///< #PUGL_FOCUS_IN or #PUGL_FOCUS_OUT
-	PuglEventFlags flags; ///< Bitwise OR of #PuglEventFlag values
-	bool           grab;  ///< True iff this is a grab/ungrab event
+	PuglEventType    type;  ///< #PUGL_FOCUS_IN or #PUGL_FOCUS_OUT
+	PuglEventFlags   flags; ///< Bitwise OR of #PuglEventFlag values
+	PuglCrossingMode mode;  ///< Reason for focus change
 } PuglEventFocus;
 
 /**
@@ -355,12 +382,12 @@ typedef struct {
    as text input.
 
    Keys are represented portably as Unicode code points, using the "natural"
-   code point for the key where possible (see #PuglKey for details).  The #key
+   code point for the key where possible (see #PuglKey for details).  The `key`
    field is the code for the pressed key, without any modifiers applied.  For
-   example, a press or release of the 'A' key will have #key 97 ('a')
+   example, a press or release of the 'A' key will have `key` 97 ('a')
    regardless of whether shift or control are being held.
 
-   Alternatively, the raw #keycode can be used to work directly with physical
+   Alternatively, the raw `keycode` can be used to work directly with physical
    keys, but note that this value is not portable and differs between platforms
    and hardware.
 */
@@ -407,7 +434,7 @@ typedef struct {
 
    This event is sent when the pointer enters or leaves the view.  This can
    happen for several reasons (not just the user dragging the pointer over the
-   window edge), as described by the #mode field.
+   window edge), as described by the `mode` field.
 */
 typedef struct {
 	PuglEventType    type;  ///< #PUGL_POINTER_IN or #PUGL_POINTER_OUT
@@ -448,30 +475,29 @@ typedef struct {
 	double         xRoot;  ///< Root-relative X coordinate
 	double         yRoot;  ///< Root-relative Y coordinate
 	PuglMods       state;  ///< Bitwise OR of #PuglMod flags
-	bool           isHint; ///< True iff this event is a motion hint
-	bool           focus;  ///< True iff this is the focused view
 } PuglEventMotion;
 
 /**
    Scroll event.
 
    The scroll distance is expressed in "lines", an arbitrary unit that
-   corresponds to a single tick of a detented mouse wheel.  For example, #dy =
+   corresponds to a single tick of a detented mouse wheel.  For example, `dy` =
    1.0 scrolls 1 line up.  Some systems and devices support finer resolution
    and/or higher values for fast scrolls, so programs should handle any value
    gracefully.
 */
 typedef struct {
-	PuglEventType  type;  ///< #PUGL_SCROLL
-	PuglEventFlags flags; ///< Bitwise OR of #PuglEventFlag values
-	double         time;  ///< Time in seconds
-	double         x;     ///< View-relative X coordinate
-	double         y;     ///< View-relative Y coordinate
-	double         xRoot; ///< Root-relative X coordinate
-	double         yRoot; ///< Root-relative Y coordinate
-	PuglMods       state; ///< Bitwise OR of #PuglMod flags
-	double         dx;    ///< Scroll X distance in lines
-	double         dy;    ///< Scroll Y distance in lines
+	PuglEventType       type;      ///< #PUGL_SCROLL
+	PuglEventFlags      flags;     ///< Bitwise OR of #PuglEventFlag values
+	double              time;      ///< Time in seconds
+	double              x;         ///< View-relative X coordinate
+	double              y;         ///< View-relative Y coordinate
+	double              xRoot;     ///< Root-relative X coordinate
+	double              yRoot;     ///< Root-relative Y coordinate
+	PuglMods            state;     ///< Bitwise OR of #PuglMod flags
+	PuglScrollDirection direction; ///< Scroll direction
+	double              dx;        ///< Scroll X distance in lines
+	double              dy;        ///< Scroll Y distance in lines
 } PuglEventScroll;
 
 /**
@@ -494,7 +520,7 @@ typedef struct {
    This event is sent at the regular interval specified in the call to
    puglStartTimer() that activated it.
 
-   The #id is the application-specific ID given to puglStartTimer() which
+   The `id` is the application-specific ID given to puglStartTimer() which
    distinguishes this timer from others.  It should always be checked in the
    event handler, even in applications that register only one timer.
 */
@@ -507,7 +533,7 @@ typedef struct {
 /**
    View event.
 
-   This is a union of all event types.  The #type must be checked to determine
+   This is a union of all event types.  The type must be checked to determine
    which fields are safe to access.  A pointer to PuglEvent can either be cast
    to the appropriate type, or the union members used.
 
@@ -548,6 +574,7 @@ typedef enum {
 	PUGL_FAILURE,               ///< Non-fatal failure
 	PUGL_UNKNOWN_ERROR,         ///< Unknown system error
 	PUGL_BAD_BACKEND,           ///< Invalid or missing backend
+	PUGL_BAD_CONFIGURATION,     ///< Invalid view configuration
 	PUGL_BAD_PARAMETER,         ///< Invalid parameter
 	PUGL_BACKEND_FAILED,        ///< Backend initialisation failed
 	PUGL_REGISTRATION_FAILED,   ///< Class registration failed
@@ -594,7 +621,7 @@ typedef struct PuglWorldImpl PuglWorld;
 typedef void* PuglWorldHandle;
 
 /**
-   The type of a PuglWorld.
+   The type of a World.
 */
 typedef enum {
 	PUGL_PROGRAM, ///< Top-level application
@@ -728,19 +755,18 @@ puglGetTime(const PuglWorld* world);
    This function is a single iteration of the main loop, and should be called
    repeatedly to update all views.
 
-   If a positive timeout is given, then events will be processed for that
-   amount of time, starting from when this function was called.  For purely
-   event-driven programs, a timeout of -1.0 can be used to block indefinitely
-   until something happens.  For continuously animating programs, a timeout
-   that is a reasonable fraction of the ideal frame period should be used, to
-   minimise input latency by ensuring that as many input events are consumed as
-   possible before drawing.  Plugins should always use a timeout of 0.0 to
-   avoid blocking the host.
+   If `timeout` is zero, then this function will not block.  Plugins should
+   always use a timeout of zero to avoid blocking the host.
 
-   @param world The world to update.
+   If a positive `timeout` is given, then events will be processed for that
+   amount of time, starting from when this function was called.
 
-   @param timeout Maximum time to wait, in seconds.  If zero, the call returns
-   immediately, if negative, the call blocks indefinitely.
+   If a negative `timeout` is given, this function will block indefinitely
+   until an event occurs.
+
+   For continuously animating programs, a timeout that is a reasonable fraction
+   of the ideal frame period should be used, to minimise input latency by
+   ensuring that as many input events are consumed as possible before drawing.
 
    @return #PUGL_SUCCESS if events are read, #PUGL_FAILURE if not, or an error.
 */
@@ -937,6 +963,16 @@ PUGL_API PuglStatus
 puglSetFrame(PuglView* view, PuglRect frame);
 
 /**
+   Set the default size of the view.
+
+   This should be called before puglResize() to set the default size of the
+   view, which will be the initial size of the window if this is a top level
+   view.
+*/
+PUGL_API PuglStatus
+puglSetDefaultSize(PuglView* view, int width, int height);
+
+/**
    Set the minimum size of the view.
 
    If an initial minimum size is known, this should be called before
@@ -944,6 +980,15 @@ puglSetFrame(PuglView* view, PuglRect frame);
 */
 PUGL_API PuglStatus
 puglSetMinSize(PuglView* view, int width, int height);
+
+/**
+   Set the maximum size of the view.
+
+   If an initial maximum size is known, this should be called before
+   puglRealize() to avoid stutter, though it can be called afterwards as well.
+*/
+PUGL_API PuglStatus
+puglSetMaxSize(PuglView* view, int width, int height);
 
 /**
    Set the view aspect ratio range.
@@ -992,6 +1037,9 @@ puglSetParentWindow(PuglView* view, PuglNativeView parent);
    Set this for transient children like dialogs, to have them properly
    associated with their parent window.  This should be called before
    puglRealize().
+
+   A view can either have a parent (for embedding) or a transient parent (for
+   top-level windows like dialogs), but not both.
 */
 PUGL_API PuglStatus
 puglSetTransientFor(PuglView* view, PuglNativeView parent);
@@ -1091,6 +1139,22 @@ puglPostRedisplayRect(PuglView* view, PuglRect rect);
 */
 
 /**
+   A mouse cursor type.
+
+   This is a portable subset of mouse cursors that exist on X11, MacOS, and
+   Windows.
+*/
+typedef enum {
+	PUGL_CURSOR_ARROW,      ///< Default pointing arrow
+	PUGL_CURSOR_CARET,      ///< Caret (I-Beam) for text entry
+	PUGL_CURSOR_CROSSHAIR,  ///< Cross-hair
+	PUGL_CURSOR_HAND,       ///< Hand with a pointing finger
+	PUGL_CURSOR_NO,         ///< Operation not allowed
+	PUGL_CURSOR_LEFT_RIGHT, ///< Left/right arrow for horizontal resize
+	PUGL_CURSOR_UP_DOWN,    ///< Up/down arrow for vertical resize
+} PuglCursor;
+
+/**
    Grab the keyboard input focus.
 */
 PUGL_API PuglStatus
@@ -1132,6 +1196,16 @@ puglSetClipboard(PuglView*   view,
 */
 PUGL_API const void*
 puglGetClipboard(PuglView* view, const char** type, size_t* len);
+
+/**
+   Set the mouse cursor.
+
+   This changes the system cursor that is displayed when the pointer is inside
+   the view.  May fail if setting the cursor is not supported on this system,
+   for example if compiled on X11 without Xcursor support.
+ */
+PUGL_API PuglStatus
+puglSetCursor(PuglView* view, PuglCursor cursor);
 
 /**
    Request user attention.
@@ -1494,6 +1568,7 @@ puglLeaveContext(PuglView* view, bool drawing);
 #endif  /* PUGL_DISABLE_DEPRECATED */
 
 /**
+   @}
    @}
    @}
 */

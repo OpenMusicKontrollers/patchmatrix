@@ -1,5 +1,5 @@
 /*
-  Copyright 2012-2019 David Robillard <http://drobilla.net>
+  Copyright 2012-2019 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -135,7 +135,7 @@ mat4Ortho(mat4        m,
 	m[3][3] = 1.0f;
 }
 
-/** Calculate a projection matrix for a given perspective. */
+/// Calculate a projection matrix for a given perspective
 static inline void
 perspective(float* m, float fov, float aspect, float zNear, float zFar)
 {

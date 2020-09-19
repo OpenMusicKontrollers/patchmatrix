@@ -1,5 +1,5 @@
 /*
-  Copyright 2012-2020 David Robillard <http://drobilla.net>
+  Copyright 2012-2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -15,7 +15,8 @@
 */
 
 /**
-   @file pugl_embed_demo.c An example of embedding a view in another.
+   @file pugl_embed_demo.c
+   @brief An example of embedding a view in another.
 */
 
 #include "cube_view.h"
@@ -40,14 +41,14 @@ typedef struct
 	PuglWorld* world;
 	PuglView*  parent;
 	PuglView*  child;
-	bool       continuous;
-	int        quit;
 	double     xAngle;
 	double     yAngle;
-	float      dist;
 	double     lastMouseX;
 	double     lastMouseY;
 	double     lastDrawTime;
+	float      dist;
+	int        quit;
+	bool       continuous;
 	bool       mouseEntered;
 	bool       verbose;
 	bool       reversing;
@@ -292,8 +293,9 @@ main(int argc, char** argv)
 	puglSetClassName(app.world, "Pugl Test");
 
 	const PuglRect parentFrame = { 0, 0, 512, 512 };
-	puglSetFrame(app.parent, parentFrame);
+	puglSetDefaultSize(app.parent, 512, 512);
 	puglSetMinSize(app.parent, borderWidth * 3, borderWidth * 3);
+	puglSetMaxSize(app.parent, 1024, 1024);
 	puglSetAspectRatio(app.parent, 1, 1, 16, 9);
 	puglSetBackend(app.parent, puglGlBackend());
 

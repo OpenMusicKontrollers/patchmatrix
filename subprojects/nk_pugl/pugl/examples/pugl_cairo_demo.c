@@ -1,5 +1,5 @@
 /*
-  Copyright 2012-2020 David Robillard <http://drobilla.net>
+  Copyright 2012-2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -15,7 +15,8 @@
 */
 
 /**
-   @file pugl_cairo_demo.c An example of drawing with Cairo.
+   @file pugl_cairo_demo.c
+   @brief An example of drawing with Cairo.
 */
 
 #include "demo_utils.h"
@@ -32,8 +33,8 @@
 #include <string.h>
 
 typedef struct {
-	PuglTestOptions opts;
 	PuglWorld*      world;
+	PuglTestOptions opts;
 	unsigned        framesDrawn;
 	int             quit;
 	bool            entered;
@@ -235,11 +236,10 @@ main(int argc, char** argv)
 	app.world = puglNewWorld(PUGL_PROGRAM, 0);
 	puglSetClassName(app.world, "PuglCairoTest");
 
-	PuglRect  frame = { 0, 0, 512, 512 };
-	PuglView* view  = puglNewView(app.world);
+	PuglView* view = puglNewView(app.world);
 
 	puglSetWindowTitle(view, "Pugl Cairo Demo");
-	puglSetFrame(view, frame);
+	puglSetDefaultSize(view, 512, 512);
 	puglSetMinSize(view, 256, 256);
 	puglSetViewHint(view, PUGL_RESIZABLE, app.opts.resizable);
 	puglSetHandle(view, &app);

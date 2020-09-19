@@ -1,5 +1,5 @@
 /*
-  Copyright 2012-2020 David Robillard <http://drobilla.net>
+  Copyright 2012-2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -15,7 +15,8 @@
 */
 
 /**
-   @file pugl_window_demo.c A demonstration of multiple Pugl windows.
+   @file pugl_window_demo.c
+   @brief A demonstration of multiple Pugl windows.
 */
 
 #include "cube_view.h"
@@ -33,20 +34,22 @@ typedef struct {
 	PuglView* view;
 	double    xAngle;
 	double    yAngle;
-	float     dist;
 	double    lastMouseX;
 	double    lastMouseY;
 	double    lastDrawTime;
+	float     dist;
 	bool      entered;
 } CubeView;
 
 typedef struct {
 	PuglWorld* world;
 	CubeView   cubes[2];
-	bool       continuous;
 	int        quit;
+	bool       continuous;
 	bool       verbose;
 } PuglTestApp;
+
+static const double pad = 64.0;
 
 static void
 onDisplay(PuglView* view)
@@ -199,19 +202,19 @@ main(int argc, char** argv)
 	puglSetClassName(app.world, "Pugl Test");
 
 	PuglStatus st = PUGL_SUCCESS;
-	for (size_t i = 0; i < 2; ++i) {
+	for (unsigned i = 0; i < 2; ++i) {
 		CubeView*      cube  = &app.cubes[i];
 		PuglView*      view  = cube->view;
-		static const double pad = 64.0;
-		const PuglRect frame = {pad + (256.0 + pad) * i,
-		                        pad + (256.0 + pad) * i,
-		                        256.0,
-		                        256.0};
+		const PuglRect frame = {pad + (128.0 + pad) * i,
+		                        pad + (128.0 + pad) * i,
+		                        512.0,
+		                        512.0};
 
 		cube->dist = 10;
 
 		puglSetWindowTitle(view, "Pugl Window Demo");
 		puglSetFrame(view, frame);
+		puglSetDefaultSize(view, 512, 512);
 		puglSetMinSize(view, 128, 128);
 		puglSetBackend(view, puglGlBackend());
 
@@ -223,6 +226,11 @@ main(int argc, char** argv)
 		puglSetViewHint(view, PUGL_IGNORE_KEY_REPEAT, opts.ignoreKeyRepeat);
 		puglSetHandle(view, cube);
 		puglSetEventFunc(view, onEvent);
+
+		if (i == 1) {
+			puglSetTransientFor(app.cubes[1].view,
+			                    puglGetNativeWindow(app.cubes[0].view));
+		}
 
 		if ((st = puglRealize(view))) {
 			return logError("Failed to create window (%s)\n", puglStrerror(st));

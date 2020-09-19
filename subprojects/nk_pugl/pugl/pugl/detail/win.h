@@ -1,5 +1,5 @@
 /*
-  Copyright 2012-2019 David Robillard <http://drobilla.net>
+  Copyright 2012-2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -15,7 +15,8 @@
 */
 
 /**
-   @file win.h Shared definitions for Windows implementation.
+   @file win.h
+   @brief Shared definitions for Windows implementation.
 */
 
 #include "pugl/detail/implementation.h"
@@ -34,6 +35,7 @@ struct PuglInternalsImpl {
 	PuglWinPFD   pfd;
 	int          pfId;
 	HWND         hwnd;
+	HCURSOR      cursor;
 	HDC          hdc;
 	PuglSurface* surface;
 	DWORD        refreshRate;
@@ -87,14 +89,34 @@ puglWinGetWindowExFlags(const PuglView* const view)
 }
 
 static inline PuglStatus
-puglWinCreateWindow(const PuglView* const view,
-                    const char* const     title,
-                    HWND* const           hwnd,
-                    HDC* const            hdc)
+puglWinCreateWindow(PuglView* const   view,
+                    const char* const title,
+                    HWND* const       hwnd,
+                    HDC* const        hdc)
 {
 	const char*    className  = (const char*)view->world->className;
 	const unsigned winFlags   = puglWinGetWindowFlags(view);
 	const unsigned winExFlags = puglWinGetWindowExFlags(view);
+
+	if (view->frame.width == 0.0 && view->frame.height == 0.0) {
+		if (view->defaultWidth == 0.0 && view->defaultHeight == 0.0) {
+			return PUGL_BAD_CONFIGURATION;
+		}
+
+		RECT desktopRect;
+		GetClientRect(GetDesktopWindow(), &desktopRect);
+
+		const int screenWidth  = desktopRect.right - desktopRect.left;
+		const int screenHeight = desktopRect.bottom - desktopRect.top;
+
+		view->frame.width  = view->defaultWidth;
+		view->frame.height = view->defaultHeight;
+		view->frame.x      = screenWidth / 2.0 - view->frame.width / 2.0;
+		view->frame.y      = screenHeight / 2.0 - view->frame.height / 2.0;
+	}
+
+	// The meaning of "parent" depends on the window type (WS_CHILD)
+	PuglNativeView parent = view->parent ? view->parent : view->transientParent;
 
 	// Calculate total window size to accommodate requested view size
 	RECT wr = { (long)view->frame.x, (long)view->frame.y,
@@ -105,7 +127,7 @@ puglWinCreateWindow(const PuglView* const view,
 	if (!(*hwnd = CreateWindowEx(winExFlags, className, title, winFlags,
 	                             CW_USEDEFAULT, CW_USEDEFAULT,
 	                             wr.right-wr.left, wr.bottom-wr.top,
-	                             (HWND)view->parent, NULL, NULL, NULL))) {
+	                             (HWND)parent, NULL, NULL, NULL))) {
 		return PUGL_REALIZE_FAILED;
 	} else if (!(*hdc = GetDC(*hwnd))) {
 		DestroyWindow(*hwnd);

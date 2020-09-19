@@ -1,5 +1,5 @@
 /*
-  Copyright 2020 David Robillard <http://drobilla.net>
+  Copyright 2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -41,9 +41,9 @@ typedef enum {
 } State;
 
 typedef struct {
-	PuglTestOptions opts;
 	PuglWorld*      world;
 	PuglView*       view;
+	PuglTestOptions opts;
 	State           state;
 } PuglTest;
 
@@ -71,7 +71,7 @@ onEvent(PuglView* view, const PuglEvent* event)
 		test->state = MAPPED;
 		break;
 	case PUGL_EXPOSE:
-		assert(test->state == MAPPED);
+		assert(test->state == MAPPED || test->state == EXPOSED);
 		test->state = EXPOSED;
 		break;
 	case PUGL_UNMAP:
@@ -104,9 +104,9 @@ tick(PuglWorld* world)
 int
 main(int argc, char** argv)
 {
-	PuglTest test = {puglParseTestOptions(&argc, &argv),
-	                 puglNewWorld(PUGL_PROGRAM, 0),
+	PuglTest test = {puglNewWorld(PUGL_PROGRAM, 0),
 	                 NULL,
+	                 puglParseTestOptions(&argc, &argv),
 	                 START};
 
 	// Set up view
@@ -115,6 +115,7 @@ main(int argc, char** argv)
 	puglSetBackend(test.view, puglStubBackend());
 	puglSetHandle(test.view, &test);
 	puglSetEventFunc(test.view, onEvent);
+	puglSetDefaultSize(test.view, 512, 512);
 
 	// Create initially invisible window
 	assert(!puglRealize(test.view));

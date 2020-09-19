@@ -1,5 +1,5 @@
 /*
-  Copyright 2012-2020 David Robillard <http://drobilla.net>
+  Copyright 2012-2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -15,7 +15,8 @@
 */
 
 /**
-   @file pugl_gl3_demo.c An example of drawing with OpenGL 3.
+   @file pugl_shader_demo.c
+   @brief An example of drawing with OpenGL 3/4.
 
    This is an example of using OpenGL for pixel-perfect 2D drawing.  It uses
    pixel coordinates for positions and sizes so that things work roughly like a
@@ -35,6 +36,7 @@
 */
 
 #include "demo_utils.h"
+#include "rects.h"
 #include "shader_utils.h"
 #include "test/test_utils.h"
 
@@ -44,7 +46,6 @@
 #include "pugl/pugl.h"
 #include "pugl/pugl_gl.h"
 
-#include <math.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,27 +56,14 @@ static const int defaultHeight = 512;
 
 typedef struct
 {
-	float pos[2];
-	float size[2];
-	float fillColor[4];
-} Rect;
-
-// clang-format off
-static const GLfloat rectVertices[] = {
-	0.0f, 0.0f, // TL
-	1.0f, 0.0f, // TR
-	0.0f, 1.0f, // BL
-	1.0f, 1.0f, // BR
-};
-// clang-format on
-
-static const GLuint rectIndices[4] = {0, 1, 2, 3};
+	mat4 projection;
+} RectUniforms;
 
 typedef struct
 {
-	PuglTestOptions opts;
 	PuglWorld*      world;
 	PuglView*       view;
+	PuglTestOptions opts;
 	size_t          numRects;
 	Rect*           rects;
 	Program         drawRect;
@@ -83,8 +71,9 @@ typedef struct
 	GLuint          vbo;
 	GLuint          instanceVbo;
 	GLuint          ibo;
-	GLint           u_projection;
 	unsigned        framesDrawn;
+	int             glMajorVersion;
+	int             glMinorVersion;
 	int             quit;
 } PuglTestApp;
 
@@ -100,7 +89,8 @@ onConfigure(PuglView* view, double width, double height)
 	(void)view;
 
 	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
+	glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glViewport(0, 0, (int)width, (int)height);
 }
@@ -129,24 +119,11 @@ onExpose(PuglView* view)
 	glUseProgram(app->drawRect.program);
 	glBindVertexArray(app->vao);
 
-	// Set projection matrix uniform
-	glUniformMatrix4fv(app->u_projection, 1, GL_FALSE, (const GLfloat*)&proj);
-
 	for (size_t i = 0; i < app->numRects; ++i) {
-		Rect*       rect      = &app->rects[i];
-		const float normal    = i / (float)app->numRects;
-		const float offset[2] = {normal * 128.0f, normal * 128.0f};
-
-		// Move rect around in an arbitrary way that looks cool
-		rect->pos[0] = (width - rect->size[0] + offset[0]) *
-		               (sinf((float)time * rect->size[0] / 64.0f + normal) +
-		                1.0f) /
-		               2.0f;
-		rect->pos[1] = (height - rect->size[1] + offset[1]) *
-		               (cosf((float)time * rect->size[1] / 64.0f + normal) +
-		                1.0f) /
-		               2.0f;
+		moveRect(&app->rects[i], i, app->numRects, width, height, time);
 	}
+
+	glBufferData(GL_UNIFORM_BUFFER, sizeof(proj), &proj, GL_STREAM_DRAW);
 
 	glBufferSubData(GL_ARRAY_BUFFER,
 	                0,
@@ -198,20 +175,9 @@ onEvent(PuglView* view, const PuglEvent* event)
 static Rect*
 makeRects(const size_t numRects)
 {
-	const float minSize  = (float)defaultWidth / 64.0f;
-	const float maxSize  = (float)defaultWidth / 6.0f;
-	const float boxAlpha = 0.2f;
-
 	Rect* rects = (Rect*)calloc(numRects, sizeof(Rect));
 	for (size_t i = 0; i < numRects; ++i) {
-		const float s = (sinf((float)i) / 2.0f + 0.5f);
-		const float c = (cosf((float)i) / 2.0f + 0.5f);
-
-		rects[i].size[0]      = minSize + s * maxSize;
-		rects[i].size[1]      = minSize + c * maxSize;
-		rects[i].fillColor[1] = s / 2.0f + 0.25f;
-		rects[i].fillColor[2] = c / 2.0f + 0.25f;
-		rects[i].fillColor[3] = boxAlpha;
+		rects[i] = makeRect(i, (float)defaultWidth);
 	}
 
 	return rects;
@@ -241,6 +207,8 @@ loadShader(const char* const path)
 static int
 parseOptions(PuglTestApp* app, int argc, char** argv)
 {
+	char* endptr = NULL;
+
 	// Parse command line options
 	app->numRects = 1024;
 	app->opts     = puglParseTestOptions(&argc, &argv);
@@ -249,11 +217,24 @@ parseOptions(PuglTestApp* app, int argc, char** argv)
 	}
 
 	// Parse number of rectangles argument, if given
-	if (argc == 1) {
-		char* endptr = NULL;
-
+	if (argc >= 1) {
 		app->numRects = (size_t)strtol(argv[0], &endptr, 10);
 		if (endptr != argv[0] + strlen(argv[0])) {
+			logError("Invalid number of rectangles: %s\n", argv[0]);
+			return 1;
+		}
+	}
+
+	// Parse OpenGL major version argument, if given
+	if (argc >= 2) {
+		app->glMajorVersion = (int)strtol(argv[1], &endptr, 10);
+		if (endptr != argv[1] + strlen(argv[1])) {
+			logError("Invalid GL major version: %s\n", argv[1]);
+			return 1;
+		} else if (app->glMajorVersion == 4) {
+			app->glMinorVersion = 2;
+		} else if (app->glMajorVersion != 3) {
+			logError("Unsupported GL major version %d\n", app->glMajorVersion);
 			return 1;
 		}
 	}
@@ -262,7 +243,7 @@ parseOptions(PuglTestApp* app, int argc, char** argv)
 }
 
 static void
-setupPugl(PuglTestApp* app, const PuglRect frame)
+setupPugl(PuglTestApp* app)
 {
 	// Create world, view, and rect data
 	app->world = puglNewWorld(PUGL_PROGRAM, 0);
@@ -272,14 +253,14 @@ setupPugl(PuglTestApp* app, const PuglRect frame)
 	// Set up world and view
 	puglSetClassName(app->world, "PuglGL3Demo");
 	puglSetWindowTitle(app->view, "Pugl OpenGL 3");
-	puglSetFrame(app->view, frame);
+	puglSetDefaultSize(app->view, defaultWidth, defaultHeight);
 	puglSetMinSize(app->view, defaultWidth / 4, defaultHeight / 4);
 	puglSetAspectRatio(app->view, 1, 1, 16, 9);
 	puglSetBackend(app->view, puglGlBackend());
 	puglSetViewHint(app->view, PUGL_USE_COMPAT_PROFILE, PUGL_FALSE);
 	puglSetViewHint(app->view, PUGL_USE_DEBUG_CONTEXT, app->opts.errorChecking);
-	puglSetViewHint(app->view, PUGL_CONTEXT_VERSION_MAJOR, 3);
-	puglSetViewHint(app->view, PUGL_CONTEXT_VERSION_MINOR, 3);
+	puglSetViewHint(app->view, PUGL_CONTEXT_VERSION_MAJOR, app->glMajorVersion);
+	puglSetViewHint(app->view, PUGL_CONTEXT_VERSION_MINOR, app->glMinorVersion);
 	puglSetViewHint(app->view, PUGL_RESIZABLE, app->opts.resizable);
 	puglSetViewHint(app->view, PUGL_SAMPLES, app->opts.samples);
 	puglSetViewHint(app->view, PUGL_DOUBLE_BUFFER, app->opts.doubleBuffer);
@@ -298,7 +279,12 @@ setupGl(PuglTestApp* app)
 		return PUGL_FAILURE;
 	}
 
+	const char* const headerFile = (app->glMajorVersion == 3
+	                                ? "shaders/header_330.glsl"
+	                                : "shaders/header_420.glsl");
+
 	// Load shader sources
+	char* const headerSource   = loadShader(headerFile);
 	char* const vertexSource   = loadShader("shaders/rect.vert");
 	char* const fragmentSource = loadShader("shaders/rect.frag");
 	if (!vertexSource || !fragmentSource) {
@@ -307,16 +293,23 @@ setupGl(PuglTestApp* app)
 	}
 
 	// Compile rectangle shaders and program
-	app->drawRect = compileProgram(vertexSource, fragmentSource);
+	app->drawRect = compileProgram(headerSource, vertexSource, fragmentSource);
 	free(fragmentSource);
 	free(vertexSource);
+	free(headerSource);
 	if (!app->drawRect.program) {
 		return PUGL_FAILURE;
 	}
 
-	// Get location of rectangle shader uniforms
-	app->u_projection =
-	        glGetUniformLocation(app->drawRect.program, "u_projection");
+	// Get location of rectangle shader uniform block
+	const GLuint globalsIndex = glGetUniformBlockIndex(app->drawRect.program,
+	                                                   "UniformBufferObject");
+
+	// Generate/bind a uniform buffer for setting rectangle properties
+	GLuint uboHandle = 0;
+	glGenBuffers(1, &uboHandle);
+	glBindBuffer(GL_UNIFORM_BUFFER, uboHandle);
+	glBindBufferBase(GL_UNIFORM_BUFFER, globalsIndex, uboHandle);
 
 	// Generate/bind a VAO to track state
 	glGenVertexArrays(1, &app->vao);
@@ -391,19 +384,19 @@ teardownGl(PuglTestApp* app)
 int
 main(int argc, char** argv)
 {
-	PuglTestApp app;
-	memset(&app, 0, sizeof(app));
+	PuglTestApp app = {0};
 
-	const PuglRect frame = {0, 0, defaultWidth, defaultHeight};
+	app.glMajorVersion = 3;
+	app.glMinorVersion = 3;
 
 	// Parse command line options
 	if (parseOptions(&app, argc, argv)) {
-		puglPrintTestUsage("pugl_gl3_demo", "[NUM_RECTS]");
+		puglPrintTestUsage("pugl_shader_demo", "[NUM_RECTS] [GL_MAJOR]");
 		return 1;
 	}
 
 	// Create and configure world and view
-	setupPugl(&app, frame);
+	setupPugl(&app);
 
 	// Create window (which will send a PUGL_CREATE event)
 	const PuglStatus st = puglRealize(app.view);

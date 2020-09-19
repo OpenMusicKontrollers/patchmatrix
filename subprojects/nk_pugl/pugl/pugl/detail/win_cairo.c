@@ -1,5 +1,5 @@
 /*
-  Copyright 2012-2020 David Robillard <http://drobilla.net>
+  Copyright 2012-2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -15,13 +15,14 @@
 */
 
 /**
-   @file win_cairo.c Cairo graphics backend for Windows.
+   @file win_cairo.c
+   @brief Cairo graphics backend for Windows.
 */
 
+#include "pugl/detail/stub.h"
 #include "pugl/detail/types.h"
 #include "pugl/detail/win.h"
 #include "pugl/pugl_cairo.h"
-#include "pugl/pugl_stub.h"
 
 #include <cairo-win32.h>
 #include <cairo.h>
@@ -152,7 +153,6 @@ puglWinCairoLeave(PuglView* view, const PuglEventExpose* expose)
 
 		PAINTSTRUCT ps;
 		EndPaint(view->impl->hwnd, &ps);
-		SwapBuffers(view->impl->hdc);
 	}
 
 	return PUGL_SUCCESS;
