@@ -1,5 +1,5 @@
 /*
-  Copyright 2012-2020 David Robillard <http://drobilla.net>
+  Copyright 2012-2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -15,12 +15,14 @@
 */
 
 /**
-   @file win.c Windows implementation.
+   @file win.c
+   @brief Windows implementation.
 */
 
 #include "pugl/detail/win.h"
 
 #include "pugl/detail/implementation.h"
+#include "pugl/detail/stub.h"
 #include "pugl/pugl.h"
 #include "pugl/pugl_stub.h"
 
@@ -189,6 +191,8 @@ puglRealize(PuglView* view)
 		puglSetWindowTitle(view, view->title);
 	}
 
+	view->impl->cursor = LoadCursor(NULL, IDC_ARROW);
+
 	puglSetFrame(view, view->frame);
 	SetWindowLongPtr(impl->hwnd, GWLP_USERDATA, (LONG_PTR)view);
 
@@ -342,7 +346,7 @@ initScrollEvent(PuglEvent* event, PuglView* view, LPARAM lParam)
 	event->scroll.dy     = 0;
 }
 
-/** Return the code point for buf, or the replacement character on error. */
+/// Return the code point for buf, or the replacement character on error
 static uint32_t
 puglDecodeUTF16(const wchar_t* buf, const int len)
 {
@@ -539,6 +543,11 @@ handleMessage(PuglView* view, UINT message, WPARAM wParam, LPARAM lParam)
 	}
 
 	switch (message) {
+	case WM_SETCURSOR:
+		if (LOWORD(lParam) == HTCLIENT) {
+			SetCursor(view->impl->cursor);
+		}
+		break;
 	case WM_SHOWWINDOW:
 		if (wParam) {
 			handleConfigure(view, &event);
@@ -577,8 +586,9 @@ handleMessage(PuglView* view, UINT message, WPARAM wParam, LPARAM lParam)
 			RedrawWindow(view->impl->hwnd, NULL, NULL,
 			             RDW_INVALIDATE|RDW_ALLCHILDREN|RDW_INTERNALPAINT);
 		} else if (wParam >= PUGL_USER_TIMER_MIN) {
-			const PuglEventTimer ev = {PUGL_TIMER, 0, wParam - PUGL_USER_TIMER_MIN};
-			puglDispatchEvent(view, (const PuglEvent*)&ev);
+			PuglEvent ev = {{PUGL_TIMER, 0}};
+			ev.timer.id  = wParam - PUGL_USER_TIMER_MIN;
+			puglDispatchEvent(view, &ev);
 		}
 		break;
 	case WM_EXITSIZEMOVE:
@@ -591,6 +601,10 @@ handleMessage(PuglView* view, UINT message, WPARAM wParam, LPARAM lParam)
 		mmi                   = (MINMAXINFO*)lParam;
 		mmi->ptMinTrackSize.x = view->minWidth;
 		mmi->ptMinTrackSize.y = view->minHeight;
+		if (view->maxWidth > 0 && view->maxHeight > 0) {
+			mmi->ptMaxTrackSize.x = view->maxWidth;
+			mmi->ptMaxTrackSize.y = view->maxHeight;
+		}
 		break;
 	case WM_PAINT:
 		GetUpdateRect(view->impl->hwnd, &rect, false);
@@ -599,7 +613,6 @@ handleMessage(PuglView* view, UINT message, WPARAM wParam, LPARAM lParam)
 		event.expose.y      = rect.top;
 		event.expose.width  = rect.right - rect.left;
 		event.expose.height = rect.bottom - rect.top;
-		event.expose.count  = 0;
 		break;
 	case WM_ERASEBKGND:
 		return true;
@@ -627,7 +640,6 @@ handleMessage(PuglView* view, UINT message, WPARAM wParam, LPARAM lParam)
 		event.motion.xRoot   = pt.x;
 		event.motion.yRoot   = pt.y;
 		event.motion.state   = getModifiers();
-		event.motion.isHint  = false;
 		break;
 	case WM_MOUSELEAVE:
 		GetCursorPos(&pt);
@@ -656,10 +668,16 @@ handleMessage(PuglView* view, UINT message, WPARAM wParam, LPARAM lParam)
 	case WM_MOUSEWHEEL:
 		initScrollEvent(&event, view, lParam);
 		event.scroll.dy = GET_WHEEL_DELTA_WPARAM(wParam) / (float)WHEEL_DELTA;
+		event.scroll.direction = (event.scroll.dy > 0
+		                          ? PUGL_SCROLL_UP
+		                          : PUGL_SCROLL_DOWN);
 		break;
 	case WM_MOUSEHWHEEL:
 		initScrollEvent(&event, view, lParam);
 		event.scroll.dx = GET_WHEEL_DELTA_WPARAM(wParam) / (float)WHEEL_DELTA;
+		event.scroll.direction = (event.scroll.dx > 0
+		                          ? PUGL_SCROLL_RIGHT
+		                          : PUGL_SCROLL_LEFT);
 		break;
 	case WM_KEYDOWN:
 		if (!ignoreKeyEvent(view, lParam)) {
@@ -958,10 +976,26 @@ puglSetFrame(PuglView* view, const PuglRect frame)
 }
 
 PuglStatus
+puglSetDefaultSize(PuglView* const view, const int width, const int height)
+{
+	view->defaultWidth  = width;
+	view->defaultHeight = height;
+	return PUGL_SUCCESS;
+}
+
+PuglStatus
 puglSetMinSize(PuglView* const view, const int width, const int height)
 {
 	view->minWidth  = width;
 	view->minHeight = height;
+	return PUGL_SUCCESS;
+}
+
+PuglStatus
+puglSetMaxSize(PuglView* const view, const int width, const int height)
+{
+	view->maxWidth  = width;
+	view->maxHeight = height;
 	return PUGL_SUCCESS;
 }
 
@@ -976,6 +1010,23 @@ puglSetAspectRatio(PuglView* const view,
 	view->minAspectY = minY;
 	view->maxAspectX = maxX;
 	view->maxAspectY = maxY;
+	return PUGL_SUCCESS;
+}
+
+PuglStatus
+puglSetTransientFor(PuglView* view, PuglNativeView parent)
+{
+	if (view->parent) {
+		return PUGL_FAILURE;
+	}
+
+	view->transientParent = parent;
+
+	if (view->impl->hwnd) {
+		SetWindowLongPtr(view->impl->hwnd, GWLP_HWNDPARENT, (LONG_PTR)parent);
+		return GetLastError() == NO_ERROR ? PUGL_SUCCESS : PUGL_FAILURE;
+	}
+
 	return PUGL_SUCCESS;
 }
 
@@ -1064,7 +1115,40 @@ puglWinStubLeave(PuglView* view, const PuglEventExpose* expose)
 	if (expose) {
 		PAINTSTRUCT ps;
 		EndPaint(view->impl->hwnd, &ps);
-		SwapBuffers(view->impl->hdc);
+	}
+
+	return PUGL_SUCCESS;
+}
+
+static const char* const cursor_ids[] = {
+    IDC_ARROW,  // ARROW
+    IDC_IBEAM,  // CARET
+    IDC_CROSS,  // CROSSHAIR
+    IDC_HAND,   // HAND
+    IDC_NO,     // NO
+    IDC_SIZEWE, // LEFT_RIGHT
+    IDC_SIZENS, // UP_DOWN
+};
+
+PuglStatus
+puglSetCursor(PuglView* view, PuglCursor cursor)
+{
+	PuglInternals* const impl  = view->impl;
+	const unsigned       index = (unsigned)cursor;
+	const unsigned       count = sizeof(cursor_ids) / sizeof(cursor_ids[0]);
+
+	if (index >= count) {
+		return PUGL_BAD_PARAMETER;
+	}
+
+	const HCURSOR cur = LoadCursor(NULL, cursor_ids[index]);
+	if (!cur) {
+		return PUGL_FAILURE;
+	}
+
+	impl->cursor = cur;
+	if (impl->mouseTracked) {
+		SetCursor(cur);
 	}
 
 	return PUGL_SUCCESS;

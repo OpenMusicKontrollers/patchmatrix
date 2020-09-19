@@ -1,5 +1,5 @@
 /*
-  Copyright 2019 David Robillard <http://drobilla.net>
+  Copyright 2019-2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -28,17 +28,18 @@ typedef struct
 } Program;
 
 static GLuint
-compileShader(const char* source, const GLenum type)
+compileShader(const char* header, const char* source, const GLenum type)
 {
-	GLuint    shader       = glCreateShader(type);
-	const int sourceLength = (int)strlen(source);
-	glShaderSource(shader, 1, &source, &sourceLength);
+	const GLchar* sources[] = {header, source};
+	const GLint   lengths[] = {(GLint)strlen(header), (GLint)strlen(source)};
+	GLuint        shader    = glCreateShader(type);
+	glShaderSource(shader, 2, sources, lengths);
 	glCompileShader(shader);
 
-	int status;
+	int status = 0;
 	glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
 	if (status == GL_FALSE) {
-		GLint length;
+		GLint length = 0;
 		glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
 
 		char* log = (char*)calloc(1, (size_t)length);
@@ -61,13 +62,17 @@ deleteProgram(Program program)
 }
 
 static Program
-compileProgram(const char* vertexSource, const char* fragmentSource)
+compileProgram(const char* headerSource,
+               const char* vertexSource,
+               const char* fragmentSource)
 {
 	static const Program nullProgram = {0, 0, 0};
 
-	Program program = {compileShader(vertexSource, GL_VERTEX_SHADER),
-	                   compileShader(fragmentSource, GL_FRAGMENT_SHADER),
-	                   glCreateProgram()};
+	Program program = {
+	    compileShader(headerSource, vertexSource, GL_VERTEX_SHADER),
+	    compileShader(headerSource, fragmentSource, GL_FRAGMENT_SHADER),
+	    glCreateProgram(),
+	};
 
 	if (!program.vertexShader || !program.fragmentShader || !program.program) {
 		deleteProgram(program);
@@ -78,10 +83,10 @@ compileProgram(const char* vertexSource, const char* fragmentSource)
 	glAttachShader(program.program, program.fragmentShader);
 	glLinkProgram(program.program);
 
-	GLint status;
+	GLint status = 0;
 	glGetProgramiv(program.program, GL_LINK_STATUS, &status);
 	if (status == GL_FALSE) {
-		GLint length;
+		GLint length = 0;
 		glGetProgramiv(program.program, GL_INFO_LOG_LENGTH, &length);
 
 		char* log = (char*)calloc(1, (size_t)length);

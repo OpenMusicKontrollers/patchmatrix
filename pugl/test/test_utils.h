@@ -1,5 +1,5 @@
 /*
-  Copyright 2012-2020 David Robillard <http://drobilla.net>
+  Copyright 2012-2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -67,6 +67,40 @@ printModifiers(const uint32_t mods)
 	               (mods & PUGL_MOD_SUPER) ? " Super" : "");
 }
 
+static inline const char*
+crossingModeString(const PuglCrossingMode mode)
+{
+	switch (mode) {
+	case PUGL_CROSSING_NORMAL:
+		return "normal";
+	case PUGL_CROSSING_GRAB:
+		return "grab";
+	case PUGL_CROSSING_UNGRAB:
+		return "ungrab";
+	}
+
+	return "unknown";
+}
+
+static inline const char*
+scrollDirectionString(const PuglScrollDirection direction)
+{
+	switch (direction) {
+	case PUGL_SCROLL_UP:
+		return "up";
+	case PUGL_SCROLL_DOWN:
+		return "down";
+	case PUGL_SCROLL_LEFT:
+		return "left";
+	case PUGL_SCROLL_RIGHT:
+		return "right";
+	case PUGL_SCROLL_SMOOTH:
+		return "smooth";
+	}
+
+	return "unknown";
+}
+
 static inline int
 printEvent(const PuglEvent* event, const char* prefix, const bool verbose)
 {
@@ -103,31 +137,34 @@ printEvent(const PuglEvent* event, const char* prefix, const bool verbose)
 		              event->button.y) +
 		        printModifiers(event->scroll.state));
 	case PUGL_SCROLL:
-		return (PRINT("%sScroll %5.1f %5.1f at " PFMT " ",
+		return (PRINT("%sScroll %5.1f %5.1f (%s) at " PFMT " ",
 		              prefix,
 		              event->scroll.dx,
 		              event->scroll.dy,
+		              scrollDirectionString(event->scroll.direction),
 		              event->scroll.x,
 		              event->scroll.y) +
 		        printModifiers(event->scroll.state));
 	case PUGL_POINTER_IN:
-		return PRINT("%sMouse enter  at " PFMT "\n",
+		return PRINT("%sMouse enter  at " PFMT " (%s)\n",
 		             prefix,
 		             event->crossing.x,
-		             event->crossing.y);
+		             event->crossing.y,
+		             crossingModeString(event->crossing.mode));
 	case PUGL_POINTER_OUT:
-		return PRINT("%sMouse leave  at " PFMT "\n",
+		return PRINT("%sMouse leave  at " PFMT " (%s)\n",
 		             prefix,
 		             event->crossing.x,
-		             event->crossing.y);
+		             event->crossing.y,
+		             crossingModeString(event->crossing.mode));
 	case PUGL_FOCUS_IN:
-		return PRINT("%sFocus in%s\n",
+		return PRINT("%sFocus in (%s)\n",
 		             prefix,
-		             event->focus.grab ? " (grab)" : "");
+		             crossingModeString(event->crossing.mode));
 	case PUGL_FOCUS_OUT:
-		return PRINT("%sFocus out%s\n",
+		return PRINT("%sFocus out (%s)\n",
 		             prefix,
-		             event->focus.grab ? " (ungrab)" : "");
+		             crossingModeString(event->crossing.mode));
 	case PUGL_CLIENT:
 		return PRINT("%sClient %" PRIXPTR " %" PRIXPTR "\n",
 		             prefix,
@@ -173,8 +210,7 @@ printEvent(const PuglEvent* event, const char* prefix, const bool verbose)
 			             event->motion.x,
 			             event->motion.y);
 		default:
-			fprintf(stderr, "%sUnknown event type %u\n", prefix, event->type);
-			break;
+			return PRINT("%sUnknown event type %d\n", prefix, (int)event->type);
 		}
 	}
 

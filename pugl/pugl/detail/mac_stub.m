@@ -1,5 +1,5 @@
 /*
-  Copyright 2019-2020 David Robillard <http://drobilla.net>
+  Copyright 2019-2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -15,24 +15,25 @@
 */
 
 /**
-   @file mac_stub.m Stub graphics backend for MacOS.
+   @file mac_stub.m
+   @brief Stub graphics backend for MacOS.
 */
 
 #include "pugl/detail/implementation.h"
 #include "pugl/detail/mac.h"
+#include "pugl/detail/stub.h"
 #include "pugl/pugl_stub.h"
 
 #import <Cocoa/Cocoa.h>
 
 @interface PuglStubView : NSView
+@end
+
+@implementation PuglStubView
 {
 @public
 	PuglView* puglview;
 }
-
-@end
-
-@implementation PuglStubView
 
 - (void) resizeWithOldSuperviewSize:(NSSize)oldSize
 {

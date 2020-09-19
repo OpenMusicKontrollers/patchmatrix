@@ -1,5 +1,5 @@
 /*
-  Copyright 2020 David Robillard <http://drobilla.net>
+  Copyright 2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -55,9 +55,9 @@ typedef enum {
 } State;
 
 typedef struct {
-	PuglTestOptions opts;
 	PuglWorld*      world;
 	PuglView*       view;
+	PuglTestOptions opts;
 	size_t          numAlarms;
 	State           state;
 } PuglTest;
@@ -97,9 +97,9 @@ roundPeriod(const double period)
 int
 main(int argc, char** argv)
 {
-	PuglTest app = {puglParseTestOptions(&argc, &argv),
-	                puglNewWorld(PUGL_PROGRAM, 0),
+	PuglTest app = {puglNewWorld(PUGL_PROGRAM, 0),
 	                NULL,
+	                puglParseTestOptions(&argc, &argv),
 	                0,
 	                START};
 
@@ -109,6 +109,7 @@ main(int argc, char** argv)
 	puglSetBackend(app.view, puglStubBackend());
 	puglSetHandle(app.view, &app);
 	puglSetEventFunc(app.view, onEvent);
+	puglSetDefaultSize(app.view, 512, 512);
 
 	// Create and show window
 	assert(!puglRealize(app.view));

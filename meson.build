@@ -18,6 +18,10 @@ glew_dep = dependency('glew',
 	version : '>=2.1.0',
 	static : static_link,
 	required : false)
+glu_dep = dependency('glu',
+	version : '>=9.0.0',
+	static : static_link,
+	required : false)
 if not glew_dep.found()
 	glew_dep = declare_dependency(
 		compile_args : '-DGLEW_STATIC',
@@ -25,7 +29,7 @@ if not glew_dep.found()
 		sources : join_paths('glew-2.1.0', 'glew.c'))
 endif
 
-deps = [m_dep, lv2_dep, glew_dep]
+deps = [m_dep, lv2_dep, glu_dep, glew_dep]
 links = []
 
 pugl_inc = include_directories('pugl')

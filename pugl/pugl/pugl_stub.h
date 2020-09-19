@@ -1,5 +1,5 @@
 /*
-  Copyright 2019 David Robillard <http://drobilla.net>
+  Copyright 2019-2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -15,7 +15,8 @@
 */
 
 /**
-   @file pugl_stub.h Stub backend functions and accessor declaration.
+   @file pugl_stub.h
+   @brief Stub backend functions and accessor declaration.
 */
 
 #ifndef PUGL_PUGL_STUB_H
@@ -36,7 +37,7 @@ PUGL_BEGIN_DECLS
    for other backends to reuse since not all need non-trivial implementations
    of every backend function.
 
-   @ingroup pugl_api
+   @ingroup pugl_c
    @{
 */
 
@@ -49,50 +50,6 @@ PUGL_BEGIN_DECLS
 PUGL_API
 const PuglBackend*
 puglStubBackend(void);
-
-static inline PuglStatus
-puglStubConfigure(PuglView* view)
-{
-	(void)view;
-	return PUGL_SUCCESS;
-}
-
-static inline PuglStatus
-puglStubCreate(PuglView* view)
-{
-	(void)view;
-	return PUGL_SUCCESS;
-}
-
-static inline PuglStatus
-puglStubDestroy(PuglView* view)
-{
-	(void)view;
-	return PUGL_SUCCESS;
-}
-
-static inline PuglStatus
-puglStubEnter(PuglView* view, const PuglEventExpose* expose)
-{
-	(void)view;
-	(void)expose;
-	return PUGL_SUCCESS;
-}
-
-static inline PuglStatus
-puglStubLeave(PuglView* view, const PuglEventExpose* expose)
-{
-	(void)view;
-	(void)expose;
-	return PUGL_SUCCESS;
-}
-
-static inline void*
-puglStubGetContext(PuglView* view)
-{
-	(void)view;
-	return NULL;
-}
 
 /**
    @}

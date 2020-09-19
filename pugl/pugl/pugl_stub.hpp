@@ -1,6 +1,5 @@
 /*
   Copyright 2012-2020 David Robillard <d@drobilla.net>
-  Copyright 2017 Hanspeter Portner <dev@open-music-kontrollers.ch>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -16,40 +15,36 @@
 */
 
 /**
-   @file mac.h
-   @brief Shared definitions for MacOS implementation.
+   @file pugl_stub.hpp
+   @brief Declaration of Stub backend accessor for C++.
 */
 
+#ifndef PUGL_PUGL_STUB_HPP
+#define PUGL_PUGL_STUB_HPP
+
 #include "pugl/pugl.h"
+#include "pugl/pugl_stub.h"
 
-#import <Cocoa/Cocoa.h>
+namespace pugl {
 
-#include <stdint.h>
+/**
+   @defgroup stubxx Stub
+   Stub graphics support.
+   @ingroup pugl_cxx
+   @{
+*/
 
-@interface PuglWrapperView : NSView<NSTextInputClient>
+/// @copydoc puglStubBackend
+static inline const PuglBackend*
+stubBackend()
+{
+	return puglStubBackend();
+}
 
-- (void) dispatchExpose:(NSRect)rect;
-- (void) setReshaped;
+/**
+   @}
+*/
 
-@end
+} // namespace pugl
 
-@interface PuglWindow : NSWindow
-
-- (void) setPuglview:(PuglView*)view;
-
-@end
-
-struct PuglWorldInternalsImpl {
-	NSApplication*     app;
-	NSAutoreleasePool* autoreleasePool;
-};
-
-struct PuglInternalsImpl {
-	NSApplication*   app;
-	PuglWrapperView* wrapperView;
-	NSView*          drawView;
-	NSCursor*        cursor;
-	PuglWindow*      window;
-	uint32_t         mods;
-	bool             mouseTracked;
-};
+#endif // PUGL_PUGL_STUB_HPP

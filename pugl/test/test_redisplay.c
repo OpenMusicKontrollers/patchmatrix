@@ -1,5 +1,5 @@
 /*
-  Copyright 2020 David Robillard <http://drobilla.net>
+  Copyright 2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -47,13 +47,13 @@ typedef enum {
 
 typedef struct
 {
-	PuglTestOptions opts;
 	PuglWorld*      world;
 	PuglView*       view;
+	PuglTestOptions opts;
 	State           state;
 } PuglTest;
 
-static const PuglRect  redisplayRect   = {1, 2, 3, 4};
+static const PuglRect  redisplayRect   = {2, 4, 8, 16};
 static const uintptr_t postRedisplayId = 42;
 
 static PuglStatus
@@ -66,6 +66,13 @@ onEvent(PuglView* view, const PuglEvent* event)
 	}
 
 	switch (event->type) {
+	case PUGL_UPDATE:
+		if (test->state == SHOULD_REDISPLAY) {
+			puglPostRedisplayRect(view, redisplayRect);
+			test->state = POSTED_REDISPLAY;
+		}
+		break;
+
 	case PUGL_EXPOSE:
 		if (test->state == START) {
 			test->state = EXPOSED;
@@ -80,8 +87,7 @@ onEvent(PuglView* view, const PuglEvent* event)
 
 	case PUGL_CLIENT:
 		if (event->client.data1 == postRedisplayId) {
-			puglPostRedisplayRect(view, redisplayRect);
-			test->state = POSTED_REDISPLAY;
+			test->state = SHOULD_REDISPLAY;
 		}
 		break;
 
@@ -94,9 +100,9 @@ onEvent(PuglView* view, const PuglEvent* event)
 int
 main(int argc, char** argv)
 {
-	PuglTest app = {puglParseTestOptions(&argc, &argv),
-	                puglNewWorld(PUGL_PROGRAM, 0),
+	PuglTest app = {puglNewWorld(PUGL_PROGRAM, 0),
 	                NULL,
+	                puglParseTestOptions(&argc, &argv),
 	                START};
 
 	// Set up view
@@ -105,6 +111,7 @@ main(int argc, char** argv)
 	puglSetBackend(app.view, puglStubBackend());
 	puglSetHandle(app.view, &app);
 	puglSetEventFunc(app.view, onEvent);
+	puglSetDefaultSize(app.view, 512, 512);
 
 	// Create and show window
 	assert(!puglRealize(app.view));
@@ -114,8 +121,10 @@ main(int argc, char** argv)
 	}
 
 	// Send a custom event to trigger a redisplay in the event loop
-	const PuglEventClient client = { PUGL_CLIENT, 0, postRedisplayId, 0 };
-	assert(!puglSendEvent(app.view, (const PuglEvent*)&client));
+	PuglEvent client_event    = {{PUGL_CLIENT, 0}};
+	client_event.client.data1 = postRedisplayId;
+	client_event.client.data2 = 0;
+	assert(!puglSendEvent(app.view, &client_event));
 
 	// Loop until an expose happens in the same iteration as the redisplay
 	app.state = SHOULD_REDISPLAY;

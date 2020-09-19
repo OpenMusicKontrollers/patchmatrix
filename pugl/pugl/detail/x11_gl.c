@@ -1,5 +1,5 @@
 /*
-  Copyright 2012-2019 David Robillard <http://drobilla.net>
+  Copyright 2012-2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -15,14 +15,15 @@
 */
 
 /**
-   @file x11_gl.c OpenGL graphics backend for X11.
+   @file x11_gl.c
+   @brief OpenGL graphics backend for X11.
 */
 
+#include "pugl/detail/stub.h"
 #include "pugl/detail/types.h"
 #include "pugl/detail/x11.h"
 #include "pugl/pugl.h"
 #include "pugl/pugl_gl.h"
-#include "pugl/pugl_stub.h"
 
 #include <GL/glx.h>
 #include <X11/X.h>
@@ -114,6 +115,28 @@ puglX11GlConfigure(PuglView* view)
 }
 
 static PuglStatus
+puglX11GlEnter(PuglView* view, const PuglEventExpose* PUGL_UNUSED(expose))
+{
+	PuglX11GlSurface* surface = (PuglX11GlSurface*)view->impl->surface;
+	glXMakeCurrent(view->impl->display, view->impl->win, surface->ctx);
+	return PUGL_SUCCESS;
+}
+
+static PuglStatus
+puglX11GlLeave(PuglView* view, const PuglEventExpose* expose)
+{
+	PuglX11GlSurface* surface = (PuglX11GlSurface*)view->impl->surface;
+
+	if (expose && surface->double_buffered) {
+		glXSwapBuffers(view->impl->display, view->impl->win);
+	}
+
+	glXMakeCurrent(view->impl->display, None, NULL);
+
+	return PUGL_SUCCESS;
+}
+
+static PuglStatus
 puglX11GlCreate(PuglView* view)
 {
 	PuglInternals* const    impl      = view->impl;
@@ -152,7 +175,9 @@ puglX11GlCreate(PuglView* view)
 
 	const int swapInterval = view->hints[PUGL_SWAP_INTERVAL];
 	if (glXSwapIntervalEXT && swapInterval != PUGL_DONT_CARE) {
+		puglX11GlEnter(view, NULL);
 		glXSwapIntervalEXT(display, impl->win, swapInterval);
+		puglX11GlLeave(view, NULL);
 	}
 
 	glXGetConfig(impl->display,
@@ -172,28 +197,6 @@ puglX11GlDestroy(PuglView* view)
 		free(surface);
 		view->impl->surface = NULL;
 	}
-	return PUGL_SUCCESS;
-}
-
-static PuglStatus
-puglX11GlEnter(PuglView* view, const PuglEventExpose* PUGL_UNUSED(expose))
-{
-	PuglX11GlSurface* surface = (PuglX11GlSurface*)view->impl->surface;
-	glXMakeCurrent(view->impl->display, view->impl->win, surface->ctx);
-	return PUGL_SUCCESS;
-}
-
-static PuglStatus
-puglX11GlLeave(PuglView* view, const PuglEventExpose* expose)
-{
-	PuglX11GlSurface* surface = (PuglX11GlSurface*)view->impl->surface;
-
-	if (expose && surface->double_buffered) {
-		glXSwapBuffers(view->impl->display, view->impl->win);
-	}
-
-	glXMakeCurrent(view->impl->display, None, NULL);
-
 	return PUGL_SUCCESS;
 }
 

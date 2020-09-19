@@ -70,8 +70,16 @@ developers can build portable plugin binaries.
 Testing
 -------
 
-There are a few unit tests included which can be run with `python waf test
---gui-tests`, but unfortunately manual testing is still required.
+There are a few unit tests included, but unfortunately manual testing is still
+required.  The tests and example programs will be built if you pass the
+`--test` option when configuring:
+
+    ./waf configure --test
+
+Then, after building, the unit tests can be run:
+
+    ./waf
+    ./waf test --gui-tests
 
 Several example programs are included that serve as both manual tests and
 demonstrations:
@@ -84,15 +92,17 @@ demonstrations:
 
  * `pugl_window_demo` demonstrates multiple top-level windows.
 
- * `pugl_gl3_demo` demonstrates using more modern OpenGL where dynamic loading
-   and shaders are required.  It can also be used to test performance by
-   passing the number of rectangles to draw on the command line.
+ * `pugl_shader_demo` demonstrates using more modern OpenGL (version 3 or 4)
+   where dynamic loading and shaders are required.  It can also be used to test
+   performance by passing the number of rectangles to draw on the command line.
 
  * `pugl_cairo_demo` demonstrates using Cairo on top of the native windowing
    system (without OpenGL), and partial redrawing.
 
  * `pugl_print_events` is a utility that prints all received events to the
    console in a human readable format.
+
+ * `pugl_cxx_demo` is a simple cube demo that uses the C++ API.
 
 All example programs support several command line options to control various
 behaviours, see the output of `--help` for details.  Please file an issue if

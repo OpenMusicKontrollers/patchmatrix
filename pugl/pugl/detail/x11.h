@@ -1,5 +1,5 @@
 /*
-  Copyright 2012-2019 David Robillard <http://drobilla.net>
+  Copyright 2012-2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -15,7 +15,8 @@
 */
 
 /**
-   @file x11.h Shared definitions for X11 implementation.
+   @file x11.h
+   @brief Shared definitions for X11 implementation.
 */
 
 #include "pugl/detail/types.h"
@@ -43,7 +44,7 @@ typedef struct {
 typedef struct {
 	XID       alarm;
 	PuglView* view;
-	uint64_t  id;
+	uintptr_t id;
 } PuglTimer;
 
 struct PuglWorldInternalsImpl {
@@ -60,13 +61,16 @@ struct PuglWorldInternalsImpl {
 
 struct PuglInternalsImpl {
 	Display*     display;
-	int          screen;
 	XVisualInfo* vi;
 	Window       win;
 	XIC          xic;
 	PuglSurface* surface;
 	PuglEvent    pendingConfigure;
 	PuglEvent    pendingExpose;
+	int          screen;
+#ifdef HAVE_XCURSOR
+	unsigned     cursorShape;
+#endif
 };
 
 static inline PuglStatus

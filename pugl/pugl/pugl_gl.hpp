@@ -1,5 +1,5 @@
 /*
-  Copyright 2012-2019 David Robillard <http://drobilla.net>
+  Copyright 2012-2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -14,10 +14,47 @@
   OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 
-#ifndef PUGL_PUGL_CAIRO_BACKEND_H
-#define PUGL_PUGL_CAIRO_BACKEND_H
+/**
+   @file pugl_gl.hpp
+   @brief OpenGL-specific C++ API.
+*/
 
-#warning "This header is deprecated, use pugl/pugl_cairo.h instead."
-#include "pugl/pugl_cairo.h"
+#ifndef PUGL_PUGL_GL_HPP
+#define PUGL_PUGL_GL_HPP
 
-#endif // PUGL_PUGL_CAIRO_BACKEND_H
+#include "pugl/pugl.h"
+#include "pugl/pugl_gl.h"
+
+namespace pugl {
+
+/**
+   @defgroup glxx OpenGL
+   OpenGL graphics support.
+   @ingroup pugl_cxx
+   @{
+*/
+
+/// @copydoc PuglGlFunc
+using GlFunc = PuglGlFunc;
+
+/// @copydoc puglGetProcAddress
+static inline GlFunc
+getProcAddress(const char* name)
+{
+	return puglGetProcAddress(name);
+}
+
+/// @copydoc puglGlBackend
+static inline const PuglBackend*
+glBackend()
+{
+	return puglGlBackend();
+}
+
+/**
+   @}
+*/
+
+} // namespace pugl
+
+#endif // PUGL_PUGL_GL_HPP

@@ -1,5 +1,5 @@
 /*
-  Copyright 2012-2019 David Robillard <http://drobilla.net>
+  Copyright 2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -14,10 +14,23 @@
   OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 
-#ifndef PUGL_PUGL_STUB_BACKEND_H
-#define PUGL_PUGL_STUB_BACKEND_H
+/*
+  Tests that C++ headers compile without any warnings.
+*/
 
-#warning "This header is deprecated, use pugl/pugl_stub.h instead."
-#include "pugl/pugl_stub.h"
+#define PUGL_DISABLE_DEPRECATED
 
-#endif // PUGL_PUGL_STUB_BACKEND_H
+#include "pugl/gl.h"
+#include "pugl/glu.h"
+#include "pugl/pugl.h"
+#include "pugl/pugl.hpp"
+#include "pugl/pugl.ipp"
+#include "pugl/pugl_cairo.hpp"
+#include "pugl/pugl_gl.hpp"
+#include "pugl/pugl_stub.hpp"
+
+int
+main()
+{
+	return 0;
+}

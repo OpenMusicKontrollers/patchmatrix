@@ -1,5 +1,5 @@
 /*
-  Copyright 2012-2020 David Robillard <d@drobilla.net>
+  Copyright 2020 David Robillard <d@drobilla.net>
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -14,19 +14,21 @@
   OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 
-/**
-   @file glu.h
-   @brief Portable header wrapper for glu.h.
-
-   Unfortunately, GL includes vary across platforms so this header allows for
-   pure portable programs.
+/*
+  Tests that C headers compile without any warnings.
 */
 
-#ifdef __APPLE__
-#    include "OpenGL/glu.h"
-#else
-#    ifdef _WIN32
-#        include <windows.h>  /* Broken Windows GL headers require this */
-#    endif
-#    include "GL/glu.h"
-#endif
+#define PUGL_DISABLE_DEPRECATED
+
+#include "pugl/gl.h"
+#include "pugl/glu.h"
+#include "pugl/pugl.h"
+#include "pugl/pugl_cairo.h"
+#include "pugl/pugl_gl.h"
+#include "pugl/pugl_stub.h"
+
+int
+main(void)
+{
+	return 0;
+}
