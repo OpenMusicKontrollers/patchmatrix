@@ -479,7 +479,7 @@ node_editor_monitor(struct nk_context *ctx, app_t *app, client_t *client)
 		return;
 
 	const float ps = 24.f * app->scale;
-	const unsigned ny = shm->nsinks;
+	const unsigned ny = atomic_load_explicit(&shm->nsinks, memory_order_acquire);
 
 	client->dim.x = 6 * ps;
 	client->dim.y = ny * ps;

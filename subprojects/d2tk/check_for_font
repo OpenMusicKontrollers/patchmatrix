@@ -1,0 +1,3 @@
+#!/bin/sh
+
+fc-list | grep "$1"

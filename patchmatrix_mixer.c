@@ -19,6 +19,9 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+#define NSMC_IMPLEMENTATION
+#include <nsmc/nsmc.h>
+
 #include <patchmatrix.h>
 
 typedef struct _mixer_app_t mixer_app_t;
@@ -34,8 +37,10 @@ struct _mixer_app_t {
 	int16_t data [0x10];
 
 	mixer_shm_t *shm;	
+	nsmc_t *nsm;
 };
 
+static atomic_bool done = ATOMIC_VAR_INIT(false);
 static atomic_bool closed = ATOMIC_VAR_INIT(false);
 
 static void
@@ -439,6 +444,24 @@ _jack_session_cb(jack_session_event_t *jev, void *arg)
 	jack_session_event_free(jev);
 }
 
+static int
+_nsm_callback(void *data, const nsmc_event_t *ev)
+{
+	app_t *mixer = data;
+	(void)mixer; //FIXME
+
+	switch(ev->type)
+	{
+		//FIXME
+		default:
+		{
+			// nothing to do
+		} break;
+	}
+
+	return 0;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -448,7 +471,6 @@ main(int argc, char **argv)
 	cJSON *root = NULL;
 	cJSON *gains_node = NULL;
 	const char *server_name = NULL;
-	const char *session_id = NULL;
 	unsigned nsinks = 1;
 	unsigned nsources = 1;
 	mixer.type = TYPE_AUDIO;
@@ -459,7 +481,7 @@ main(int argc, char **argv)
 		"Released under Artistic License 2.0 by Open Music Kontrollers\n", argv[0]);
 
 	int c;
-	while((c = getopt(argc, argv, "vhn:u:t:i:o:d:")) != -1)
+	while((c = getopt(argc, argv, "vhn:t:i:o:d:")) != -1)
 	{
 		switch(c)
 		{
@@ -491,19 +513,11 @@ main(int argc, char **argv)
 					"   [-t] port-type       port type (audio, midi)\n"
 					"   [-i] input-num       port input number (1-%i)\n"
 					"   [-o] output-num      port output number (1-%i)\n"
-					"   [-n] server-name     connect to named JACK daemon\n"
-					"   [-u] client-uuid     client UUID for JACK session management\n"
-					"   [-d] session-dir     directory for JACK session management\n\n"
+					"   [-n] server-name     connect to named JACK daemon\n\n"
 					, argv[0], PORT_MAX, PORT_MAX);
 				return 0;
 			case 'n':
 				server_name = optarg;
-				break;
-			case 'u':
-				session_id = optarg;
-				break;
-			case 'd':
-				root = _load_session(optarg);
 				break;
 			case 't':
 				mixer.type = _port_type_from_string(optarg);
@@ -519,8 +533,8 @@ main(int argc, char **argv)
 					nsources = PORT_MAX;
 				break;
 			case '?':
-				if( (optopt == 'n') || (optopt == 'u') || (optopt == 't')
-						|| (optopt == 'i') || (optopt == 'o') || (optopt == 'd') )
+				if( (optopt == 'n') ||  (optopt == 't')
+						|| (optopt == 'i') || (optopt == 'o') )
 					fprintf(stderr, "Option `-%c' requires an argument.\n", optopt);
 				else if(isprint(optopt))
 					fprintf(stderr, "Unknown option `-%c'.\n", optopt);
@@ -531,6 +545,30 @@ main(int argc, char **argv)
 				return -1;
 		}
 	}
+
+	const char *exe = strrchr(argv[0], '/');
+	exe = exe ? exe + 1 : argv[0];
+	mixer.nsm = nsmc_new("PATCHMATRIX-MIXER", exe, argv[optind], _nsm_callback, &mixer);
+
+	if(!mixer.nsm)
+	{
+		fprintf(stderr, "[%s] nsmc_new failed\n", __func__);
+		return 1;
+	}
+
+	while(!atomic_load(&done))
+	{
+		if(nsmc_managed())
+		{
+			nsmc_pollin(mixer.nsm, 1000);
+		}
+		else
+		{
+			sleep(1);
+		}
+	}
+
+	nsmc_free(mixer.nsm);
 
 	if(root)
 	{
@@ -560,13 +598,10 @@ main(int argc, char **argv)
 	jack_options_t opts = JackNullOption | JackNoStartServer;
 	if(server_name)
 		opts |= JackServerName;
-	if(session_id)
-		opts |= JackSessionID;
 
 	jack_status_t status;
 	mixer.client = jack_client_open(PATCHMATRIX_MIXER_ID, opts, &status,
-		server_name ? server_name : session_id,
-		server_name ? session_id : NULL);
+		server_name ? server_name : NULL);
 	if(!mixer.client)
 		return -1;
 

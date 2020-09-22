@@ -1,0 +1,24 @@
+option('build-debug-overlay',
+	type : 'boolean',
+	value : false)
+option('build-tests',
+	type : 'boolean',
+	value : true)
+
+option('use-backend-cairo',
+	type : 'feature',
+	value : 'disabled')
+option('use-backend-nanovg',
+	type : 'feature',
+	value : 'enabled')
+
+option('use-frontend-pugl',
+	type : 'feature',
+	value : 'enabled')
+
+option('use-vterm',
+	type : 'feature',
+	value : 'enabled')
+option('use-fontconfig',
+	type : 'feature',
+	value : 'enabled')

@@ -44,6 +44,8 @@
 
 #include <varchunk.h>
 
+#include <nsmc/nsmc.h>
+
 #define NK_PUGL_API
 #include <nk_pugl/nk_pugl.h>
 
@@ -161,7 +163,7 @@ struct _mixer_shm_t {
 struct _monitor_shm_t {
 	sem_t done;
 	atomic_bool closing;
-	unsigned nsinks;
+	atomic_uint nsinks;
 	atomic_int jgains [PORT_MAX];
 };
 
@@ -286,7 +288,6 @@ struct _app_t {
 	varchunk_t *from_jack;
 
 	const char *server_name;
-	const char *session_id;
 
 	nk_pugl_window_t win;
 
@@ -315,6 +316,7 @@ struct _app_t {
 	struct nk_rect contextbounds;
 
 	cJSON *root;
+	nsmc_t *nsm;
 };
 
 #define HASH_FOREACH(hash, itr) \

@@ -6,6 +6,7 @@ project('patchmatrix', 'c', default_options : [
 	'c_std=gnu11'])
 
 nk_pugl = subproject('nk_pugl')
+d2tk = subproject('d2tk')
 
 nk_pugl_dep = nk_pugl.get_variable('nk_pugl_gl')
 cousine_regular_ttf = nk_pugl.get_variable('cousine_regular_ttf')
@@ -15,6 +16,15 @@ version = run_command('cat', 'VERSION').stdout().strip()
 prefix = get_option('prefix')
 datadir = get_option('datadir')
 bindir = get_option('bindir')
+use_fontconfig = get_option('use-fontconfig')
+
+if get_option('use-backend-nanovg').enabled()
+	d2tk_dep = d2tk.get_variable('d2tk_nanovg')
+elif get_option('use-backend-cairo').enabled()
+	d2tk_dep = d2tk.get_variable('d2tk_cairo')
+else
+	error('no valid UI backend given')
+endif
 
 appdir = join_paths(prefix, datadir, 'applications')
 pdatadir = join_paths(prefix, datadir, 'patchmatrix', '')
@@ -42,18 +52,20 @@ endif
 m_dep = cc.find_library('m')
 rt_dep = cc.find_library('rt')
 lv2_dep = dependency('lv2', version : '>=1.14.0')
+lua_dep = dependency('lua', version : '>=5.3.0')
 jack_dep = dependency('jack')
 threads_dep = dependency('threads')
 
-dsp_deps = [m_dep, rt_dep, lv2_dep, jack_dep, threads_dep]
+dsp_deps = [m_dep, rt_dep, lv2_dep, jack_dep, threads_dep, lua_dep]
 ui_deps = [nk_pugl_dep]
 
 varchunk_inc = include_directories('varchunk')
 jackey_inc = include_directories('jackey')
 osc_inc = include_directories('osc.lv2')
 nk_pugl_inc = include_directories(join_paths('subprojects', 'nk_pugl'))
+d2tk_inc = include_directories(join_paths('subprojects', 'd2tk'))
 
-incs = [varchunk_inc, jackey_inc, osc_inc, nk_pugl_inc]
+incs = [varchunk_inc, jackey_inc, osc_inc, nk_pugl_inc, d2tk_inc]
 
 c_args = ['-fvisibility=hidden',
 	'-ffast-math',
@@ -66,6 +78,10 @@ dsp_srcs = [
 	'patchmatrix_nk.c'
 ]
 
+dsp2_srcs = [
+	'patchmatrix2.c'
+]
+
 cjson_lib = static_library('cJSON', join_paths('cJSON', 'cJSON.c'))
 
 executable('patchmatrix', [dsp_srcs],
@@ -73,6 +89,12 @@ executable('patchmatrix', [dsp_srcs],
 	dependencies : [dsp_deps, ui_deps],
 	include_directories : incs,
 	link_with : cjson_lib,
+	install : true)
+
+executable('patchmatrix2', [dsp2_srcs],
+	c_args : c_args,
+	dependencies : [dsp_deps, d2tk_dep],
+	include_directories : incs,
 	install : true)
 
 executable('patchmatrix_mixer', 'patchmatrix_mixer.c',

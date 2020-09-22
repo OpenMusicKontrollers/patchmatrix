@@ -931,14 +931,419 @@ static const pair_t pairs [] = {
 };
 #endif
 
-int
-main(int argc, char **argv)
+#if !defined(_WIN32)
+static unsigned foo_sub_one = 0;
+static unsigned foo_sub_two [2] = { 0, 0 };
+static unsigned foo = 0;
+static unsigned bar = 0;
+
+static void
+_one(const char *path, unsigned *flag)
 {
-	(void)argc;
-	(void)argv;
+	*flag += 1;
+
+	if(!path)
+	{
+		return;
+	}
+
+	assert(!strcmp(path, "/sub/one")
+		|| !strcmp(path, "/*/one")
+		|| !strcmp(path, "/s*/one")
+		|| !strcmp(path, "/su*/one")
+		|| !strcmp(path, "/sub*/one")
+		|| !strcmp(path, "/sub/*")
+		|| !strcmp(path, "/*sub/one")
+		|| !strcmp(path, "/*s*u*b*/one")
+		|| !strcmp(path, "/su[ab]/one")
+		|| !strcmp(path, "/su[a-b]/[!a-np-z]ne")
+		|| !strcmp(path, "/su[a-b]/one")
+		|| !strcmp(path, "/s?b/?ne")
+		|| !strcmp(path, "/s?*/?ne")
+		|| !strcmp(path, "/s?*/*?e")
+		|| !strcmp(path, "/sub/{one,two}"));
+}
+
+static void
+_two(const char *path, unsigned *flag)
+{
+	*flag += 1;
+
+	if(!path)
+	{
+		return;
+	}
+
+	assert(!strcmp(path, "/sub/two")
+		|| !strcmp(path, "/sub/*")
+		|| !strcmp(path, "/sub/{one,two}"));
+}
+
+static void
+_foo(const char *path, unsigned *flag)
+{
+	*flag += 1;
+
+	if(!path)
+	{
+		return;
+	}
+
+	assert(!strcmp(path, "/foo")
+		|| !strcmp(path, "/{foo,bar}"));
+}
+
+static void
+_bar(const char *path, unsigned *flag)
+{
+	*flag += 1;
+
+	if(!path)
+	{
+		return;
+	}
+
+	assert(!strcmp(path, "/bar")
+		|| !strcmp(path, "/{foo,bar}"));
+}
+
+static void
+_hook_one(const char *path, const LV2_Atom_Tuple *arguments __attribute__((unused)),
+	void *data)
+{
+	_one(path, data);
+}
+
+static void
+_hook_two(const char *path, const LV2_Atom_Tuple *arguments __attribute__((unused)),
+	void *data)
+{
+	_two(path, data);
+}
+
+static void
+_hook_foo(const char *path, const LV2_Atom_Tuple *arguments __attribute__((unused)),
+	void *data)
+{
+	_foo(path, data);
+}
+
+static void
+_hook_bar(const char *path, const LV2_Atom_Tuple *arguments __attribute__((unused)),
+	void *data)
+{
+	_bar(path, data);
+}
+
+static LV2_OSC_Hook hook_sub [] = {
+	{ .name = "one", .method = _hook_one, .data = &foo_sub_one },
+	{ .name = "two", .method = _hook_two, .data = &foo_sub_two[0] },
+	{ .name = "two", .method = _hook_two, .data = &foo_sub_two[1] },
+	{ .name = NULL }
+};
+
+static LV2_OSC_Hook hook_root [] = {
+	{ .name = "foo", .method = _hook_foo, .data = &foo },
+	{ .name = "bar", .method = _hook_bar, .data = &bar },
+	{ .name = "sub", .hooks = hook_sub },
+	{ .name = NULL }
+};
+
+static LV2_OSC_Tree tree_sub [4];
+
+static void
+_branch_one(LV2_OSC_Reader *reader __attribute__((unused)),
+	LV2_OSC_Arg *arg __attribute__((unused)),
+	const LV2_OSC_Tree *tree __attribute__((unused)),
+	void *data __attribute__((unused)))
+{
+	_one(NULL, &foo_sub_one);
+}
+
+static void
+_branch_two(LV2_OSC_Reader *reader __attribute__((unused)),
+	LV2_OSC_Arg *arg __attribute__((unused)),
+	const LV2_OSC_Tree *tree __attribute__((unused)),
+	void *data __attribute__((unused)))
+{
+	const size_t idx = tree - &tree_sub[1];
+
+	_two(NULL, &foo_sub_two[idx]);
+}
+
+static void
+_branch_foo(LV2_OSC_Reader *reader __attribute__((unused)),
+	LV2_OSC_Arg *arg __attribute__((unused)),
+	const LV2_OSC_Tree *tree __attribute__((unused)),
+	void *data __attribute__((unused)))
+{
+	_foo(NULL, &foo);
+}
+
+static void
+_branch_bar(LV2_OSC_Reader *reader __attribute__((unused)),
+	LV2_OSC_Arg *arg __attribute__((unused)),
+	const LV2_OSC_Tree *tree __attribute__((unused)),
+	void *data __attribute__((unused)))
+{
+	_bar(NULL, &bar);
+}
+
+static LV2_OSC_Tree tree_sub [] = {
+	{ .name = "one", .branch = _branch_one },
+	{ .name = "two", .branch = _branch_two },
+	{ .name = "two", .branch = _branch_two },
+	{ .name = NULL }
+};
+
+static LV2_OSC_Tree tree_root [] = {
+	{ .name = "foo", .branch = _branch_foo },
+	{ .name = "bar", .branch = _branch_bar },
+	{ .name = "sub", .trees = tree_sub },
+	{ .name = NULL }
+};
+
+static bool
+_run_test_hooks_internal(const char *path)
+{
+	foo_sub_one = foo_sub_two[0] = foo_sub_two[1] = foo = bar = false;
+
+	{
+		LV2_OSC_URID osc_urid;
+		LV2_Atom_Forge forge;
+
+		lv2_osc_urid_init(&osc_urid, &map);
+		lv2_atom_forge_init(&forge, &map);
+
+		lv2_atom_forge_set_buffer(&forge, buf0, BUF_SIZE);
+		assert(lv2_osc_forge_message_vararg(&forge, &osc_urid, path, ""));
+
+		const LV2_Atom_Object *obj = (const LV2_Atom_Object *)buf0;;
+		assert(lv2_osc_unroll(&osc_urid, obj, lv2_osc_hooks, hook_root) == true);
+	}
+
+	{
+		LV2_OSC_Writer writer;
+		LV2_OSC_Reader reader;
+
+		lv2_osc_writer_initialize(&writer, buf1, BUF_SIZE);
+		assert(lv2_osc_writer_message_vararg(&writer, path, "") == true);
+
+		size_t len;
+		const uint8_t *buf = lv2_osc_writer_finalize(&writer, &len);
+		assert(buf);
+		assert(len);
+
+		lv2_osc_reader_initialize(&reader, buf, len);
+		lv2_osc_reader_match(&reader, len, tree_root, NULL);
+	}
+
+	return true;
+}
+
+static int
+_run_test_hooks()
+{
+	{
+		assert(_run_test_hooks_internal("/nil") == true);
+		assert(foo == 0);
+		assert(bar == 0);
+		assert(foo_sub_one == 0);
+		assert(foo_sub_two[0] == 0);
+		assert(foo_sub_two[1] == 0);
+	}
+
+	{
+		assert(_run_test_hooks_internal("/foo") == true);
+		assert(foo == 2);
+		assert(bar == 0);
+		assert(foo_sub_one == 0);
+		assert(foo_sub_two[0] == 0);
+		assert(foo_sub_two[1] == 0);
+	}
+
+	{
+		assert(_run_test_hooks_internal("/bar") == true);
+		assert(foo == 0);
+		assert(bar == 2);
+		assert(foo_sub_one == 0);
+		assert(foo_sub_two[0] == 0);
+		assert(foo_sub_two[1] == 0);
+	}
+
+	{
+		assert(_run_test_hooks_internal("/sub/nil") == true);
+		assert(foo == 0);
+		assert(bar == 0);
+		assert(foo_sub_one == 0);
+		assert(foo_sub_two[0] == 0);
+		assert(foo_sub_two[1] == 0);
+	}
+
+	{
+		assert(_run_test_hooks_internal("/sub/one") == true);
+		assert(foo == 0);
+		assert(bar == 0);
+		assert(foo_sub_one == 2);
+		assert(foo_sub_two[0] == 0);
+		assert(foo_sub_two[1] == 0);
+	}
+
+	{
+		assert(_run_test_hooks_internal("/sub/two") == true);
+		assert(foo == 0);
+		assert(bar == 0);
+		assert(foo_sub_one == 0);
+		assert(foo_sub_two[0] == 2);
+		assert(foo_sub_two[1] == 2);
+	}
+
+	{
+		assert(_run_test_hooks_internal("/sub/*") == true);
+		assert(foo == 0);
+		assert(bar == 0);
+		assert(foo_sub_one == 2);
+		assert(foo_sub_two[0] == 2);
+		assert(foo_sub_two[1] == 2);
+	}
+
+	{
+		assert(_run_test_hooks_internal("/*/one") == true);
+		assert(foo == 0);
+		assert(bar == 0);
+		assert(foo_sub_one == 2);
+		assert(foo_sub_two[0] == 0);
+		assert(foo_sub_two[1] == 0);
+	}
+
+	{
+		assert(_run_test_hooks_internal("/s*/one") == true);
+		assert(foo == 0);
+		assert(bar == 0);
+		assert(foo_sub_one == 2);
+		assert(foo_sub_two[0] == 0);
+		assert(foo_sub_two[1] == 0);
+	}
+
+	{
+		assert(_run_test_hooks_internal("/su*/one") == true);
+		assert(foo == 0);
+		assert(bar == 0);
+		assert(foo_sub_one == 2);
+		assert(foo_sub_two[0] == 0);
+		assert(foo_sub_two[1] == 0);
+	}
+
+	{
+		assert(_run_test_hooks_internal("/sub*/one") == true);
+		assert(foo == 0);
+		assert(bar == 0);
+		assert(foo_sub_one == 2);
+		assert(foo_sub_two[0] == 0);
+		assert(foo_sub_two[1] == 0);
+	}
+
+	{
+		assert(_run_test_hooks_internal("/*sub/one") == true);
+		assert(foo == 0);
+		assert(bar == 0);
+		assert(foo_sub_one == 2);
+		assert(foo_sub_two[0] == 0);
+		assert(foo_sub_two[1] == 0);
+	}
+
+	{
+		assert(_run_test_hooks_internal("/*s*u*b*/one") == true);
+		assert(foo == 0);
+		assert(bar == 0);
+		assert(foo_sub_one == 2);
+		assert(foo_sub_two[0] == 0);
+		assert(foo_sub_two[1] == 0);
+	}
+
+	{
+		assert(_run_test_hooks_internal("/su[ab]/one") == true);
+		assert(foo == 0);
+		assert(bar == 0);
+		assert(foo_sub_one == 2);
+		assert(foo_sub_two[0] == 0);
+		assert(foo_sub_two[1] == 0);
+	}
+
+	{
+		assert(_run_test_hooks_internal("/su[a-b]/[!a-np-z]ne") == true);
+		assert(foo == 0);
+		assert(bar == 0);
+		assert(foo_sub_one == 2);
+		assert(foo_sub_two[0] == 0);
+		assert(foo_sub_two[1] == 0);
+	}
+
+	{
+		assert(_run_test_hooks_internal("/su[!a-b]/one") == true);
+		assert(foo == 0);
+		assert(bar == 0);
+		assert(foo_sub_one == 0);
+		assert(foo_sub_two[0] == 0);
+		assert(foo_sub_two[1] == 0);
+	}
+
+	{
+		assert(_run_test_hooks_internal("/s?b/?ne") == true);
+		assert(foo == 0);
+		assert(bar == 0);
+		assert(foo_sub_one == 2);
+		assert(foo_sub_two[0] == 0);
+		assert(foo_sub_two[1] == 0);
+	}
+
+	{
+		assert(_run_test_hooks_internal("/s?*/*?e") == true);
+		assert(foo == 0);
+		assert(bar == 0);
+		assert(foo_sub_one == 2);
+		assert(foo_sub_two[0] == 0);
+		assert(foo_sub_two[1] == 0);
+	}
+
+	{
+		assert(_run_test_hooks_internal("/{foo,bar}") == true);
+		assert(foo == 2);
+		assert(bar == 2);
+		assert(foo_sub_one == 0);
+		assert(foo_sub_two[0] == 0);
+		assert(foo_sub_two[1] == 0);
+	}
+
+	{
+		assert(_run_test_hooks_internal("/sub/{one,two}") == true);
+		assert(foo == 0);
+		assert(bar == 0);
+		assert(foo_sub_one == 2);
+		assert(foo_sub_two[0] == 2);
+		assert(foo_sub_two[1] == 2);
+	}
+
+	return 0;
+}
+#endif
+
+int
+main(int argc __attribute__((unused)), char **argv __attribute__((unused)))
+{
+#if !defined(_WIN32)
+	(void)lv2_osc_stream_pollin; //FIXME
+#endif
 
 	fprintf(stdout, "running main tests:\n");
 	assert(_run_tests() == 0);
+
+#if !defined(_WIN32)
+	fprintf(stdout, "running hook tests:\n");
+	assert(_run_test_hooks() == 0);
+#else
+	(void)lv2_osc_hooks; //FIXME
+#endif
 
 #if !defined(_WIN32)
 	for(const pair_t *pair = pairs; pair->server; pair++)

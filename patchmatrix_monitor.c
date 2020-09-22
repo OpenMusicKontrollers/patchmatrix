@@ -19,6 +19,9 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+#define NSMC_IMPLEMENTATION
+#include <nsmc/nsmc.h>
+
 #include <patchmatrix.h>
 
 typedef struct _monitor_app_t monitor_app_t;
@@ -37,10 +40,20 @@ struct _monitor_app_t {
 	};
 	port_type_t type;
 
+	const char *server_name;
 	monitor_shm_t *shm;	
+	nsmc_t *nsm;
+	char *path;
 };
 
+static atomic_bool done = ATOMIC_VAR_INIT(false);
 static atomic_bool closed = ATOMIC_VAR_INIT(false);
+
+static void
+_sig(int sig)
+{
+	atomic_store_explicit(&done, true, memory_order_relaxed);
+}
 
 static void
 _close(monitor_shm_t *shm)
@@ -63,6 +76,7 @@ _audio_monitor_process(jack_nframes_t nframes, void *arg)
 {
 	monitor_app_t *monitor = arg;
 	monitor_shm_t *shm = monitor->shm;
+	const unsigned nsinks = atomic_load_explicit(&shm->nsinks, memory_order_acquire);
 
 	if(  atomic_load_explicit(&closed, memory_order_relaxed)
 		|| atomic_load_explicit(&shm->closing, memory_order_relaxed) )
@@ -71,8 +85,6 @@ _audio_monitor_process(jack_nframes_t nframes, void *arg)
 	}
 
 	const float *psinks [PORT_MAX];
-
-	const unsigned nsinks = shm->nsinks;
 
 	for(unsigned i = 0; i < nsinks; i++)
 	{
@@ -84,19 +96,25 @@ _audio_monitor_process(jack_nframes_t nframes, void *arg)
 		{
 			const float sample = fabsf(psinks[i][k]);
 			if(sample > peak)
+			{
 				peak = sample;
+			}
 		}
 
 		// go to zero in 1/2 s
 		if(monitor->audio.dBFSs[i] > -64.f)
+		{
 			monitor->audio.dBFSs[i] -= nframes * 70.f * 2.f * monitor->sample_rate_1;
+		}
 
 		const float dBFS = (peak > 0.f)
 			? 6.f + 20.f*log10f(peak / 2.f) // dBFS+6
 			: -64.f;
 
 		if(dBFS > monitor->audio.dBFSs[i])
+		{
 			monitor->audio.dBFSs[i] = dBFS;
+		}
 
 		const int32_t mBFS = rintf(monitor->audio.dBFSs[i] * 100.f);
 		atomic_store_explicit(&shm->jgains[i], mBFS, memory_order_relaxed);
@@ -110,6 +128,7 @@ _midi_monitor_process(jack_nframes_t nframes, void *arg)
 {
 	monitor_app_t *monitor = arg;
 	monitor_shm_t *shm = monitor->shm;
+	const unsigned nsinks = atomic_load_explicit(&shm->nsinks, memory_order_acquire);
 
 	if(  atomic_load_explicit(&closed, memory_order_relaxed)
 		|| atomic_load_explicit(&shm->closing, memory_order_relaxed) )
@@ -118,8 +137,6 @@ _midi_monitor_process(jack_nframes_t nframes, void *arg)
 	}
 
 	void *psinks [PORT_MAX];
-
-	const unsigned nsinks = shm->nsinks;
 
 	for(unsigned i = 0; i < nsinks; i++)
 	{
@@ -134,21 +151,29 @@ _midi_monitor_process(jack_nframes_t nframes, void *arg)
 			jack_midi_event_get(&ev, psinks[i], k);
 
 			if(ev.size != 3)
+			{
 				continue;
+			}
 
 			if( (ev.buffer[0] & 0xf0) == 0x90)
 			{
 				if(ev.buffer[2] > vel)
+				{
 					vel = ev.buffer[2];
+				}
 			}
 		}
 
 		// go to zero in 1/2 s
 		if(monitor->midi.vels[i] > 0.f)
+		{
 			monitor->midi.vels[i] -= nframes * 127.f * 2.f * monitor->sample_rate_1;
+		}
 
 		if(vel > monitor->midi.vels[i])
+		{
 			monitor->midi.vels[i] = vel;
+		}
 
 		const int32_t cvel = rintf(monitor->midi.vels[i] * 100.f);
 		atomic_store_explicit(&shm->jgains[i], cvel, memory_order_relaxed);
@@ -161,12 +186,13 @@ static cJSON *
 _create_session(monitor_app_t *monitor)
 {
 	monitor_shm_t *shm = monitor->shm;
+	const unsigned nsinks = atomic_load_explicit(&shm->nsinks, memory_order_acquire);
 
 	cJSON *root = cJSON_CreateObject();
 	if(root)
 	{
 		cJSON_AddStringToObject(root, "type", _port_type_to_string(monitor->type));
-		cJSON_AddNumberToObject(root, "nsinks", shm->nsinks);
+		cJSON_AddNumberToObject(root, "nsinks", nsinks);
 
 		return root;
 	}
@@ -174,38 +200,200 @@ _create_session(monitor_app_t *monitor)
 	return NULL;
 }
 
-static void
-_jack_session_cb(jack_session_event_t *jev, void *arg)
+static int
+_jack_deinit(monitor_app_t *monitor, unsigned nsinks)
 {
-	monitor_app_t *monitor= arg;
-	monitor_shm_t *shm = monitor->shm;
+	jack_deactivate(monitor->client);
 
-	asprintf(&jev->command_line, "patchmatrix_monitor -u %s -d ${SESSION_DIR}",
-		jev->client_uuid);
-
-	switch(jev->type)
+	for(unsigned i = 0; i < nsinks; i++)
 	{
-		case JackSessionSave:
-		case JackSessionSaveAndQuit:
-		{
-			cJSON *root = _create_session(monitor);
-			if(root)
-			{
-				_save_session(root, jev->session_dir);
-				cJSON_Delete(root);
-			}
-
-			if(jev->type == JackSessionSaveAndQuit)
-				_close(shm);
-		}	break;
-		case JackSessionSaveTemplate:
-		{
-			// nothing
-		} break;
+#ifdef JACK_HAS_METADATA_API
+		jack_uuid_t uuid = jack_port_uuid(monitor->jsinks[i]);
+		jack_remove_properties(monitor->client, uuid);
+#endif
+		jack_port_unregister(monitor->client, monitor->jsinks[i]);
 	}
 
-	jack_session_reply(monitor->client, jev);
-	jack_session_event_free(jev);
+	jack_client_close(monitor->client);
+	monitor->client = NULL;
+
+	return 0;
+}
+
+static int
+_jack_init(monitor_app_t *monitor, const char *id, unsigned nsinks)
+{
+	jack_status_t status;
+	jack_options_t opts = JackNullOption | JackNoStartServer;
+
+	if(monitor->server_name)
+	{
+		opts |= JackServerName;
+	}
+
+	monitor->client = jack_client_open(id, opts, &status,
+		monitor->server_name ? monitor->server_name : NULL);
+
+	if(!monitor->client)
+	{
+		fprintf(stderr, "[%s] jack_client_open failed\n", __func__);
+		return -1;
+	}
+
+	monitor->sample_rate_1 = 1.f / jack_get_sample_rate(monitor->client);
+
+	for(unsigned i = 0; i < nsinks; i++)
+	{
+		char buf [32];
+		snprintf(buf, 32, "sink_%02u", i + 1);
+
+		jack_port_t *jsink = jack_port_register(monitor->client, buf,
+			monitor->type == TYPE_AUDIO ? JACK_DEFAULT_AUDIO_TYPE : JACK_DEFAULT_MIDI_TYPE,
+			JackPortIsInput | JackPortIsTerminal, 0);
+
+#ifdef JACK_HAS_METADATA_API
+		jack_uuid_t uuid = jack_port_uuid(jsink);
+
+		snprintf(buf, 32, "%u", i);
+		jack_set_property(monitor->client, uuid, JACKEY_ORDER, buf, XSD__integer);
+
+		snprintf(buf, 32, "Sink %u", i + 1);
+		jack_set_property(monitor->client, uuid, JACK_METADATA_PRETTY_NAME, buf, "text/plain");
+#endif
+
+		if(monitor->type == TYPE_AUDIO)
+		{
+			monitor->audio.dBFSs[i] = -64.f;
+		}
+		else if(monitor->type == TYPE_MIDI)
+		{
+			monitor->midi.vels[i] = 0.f;
+		}
+
+		monitor->jsinks[i] = jsink;
+	}
+	
+	jack_on_info_shutdown(monitor->client, _jack_on_info_shutdown_cb, monitor);
+	jack_set_process_callback(monitor->client,
+		monitor->type == TYPE_AUDIO ? _audio_monitor_process : _midi_monitor_process,
+		monitor);
+	//TODO CV
+
+	jack_activate(monitor->client);
+
+	return 0;
+}
+
+static int
+_open(monitor_app_t *monitor, const char *path, const char *name, const char *id)
+{
+	monitor_shm_t *shm = monitor->shm;
+	unsigned nsinks = atomic_load_explicit(&shm->nsinks, memory_order_acquire);
+	const bool switch_over = monitor->client ? true : false;
+
+	if(monitor->path)
+	{
+		free(monitor->path);
+	}
+
+	monitor->path = strdup(path);
+
+	if(switch_over)
+	{
+		if(_jack_deinit(monitor, nsinks) != 0)
+		{
+			return nsmc_opened(monitor->nsm, -1);
+		}
+	}
+
+	cJSON *root = _load_session(path);
+
+	if(root)
+	{
+		cJSON *type_node = cJSON_GetObjectItem(root, "type");
+		if(type_node && cJSON_IsString(type_node))
+		{
+			const char *port_type = type_node->valuestring;
+
+			monitor->type = _port_type_from_string(port_type);
+		}
+
+		cJSON *nsinks_node = cJSON_GetObjectItem(root, "nsinks");
+		if(nsinks_node && cJSON_IsNumber(nsinks_node))
+		{
+			nsinks = nsinks_node->valueint;
+		}
+
+		cJSON_Delete(root);
+	}
+
+	if(_jack_init(monitor, id, nsinks) != 0)
+	{
+		return nsmc_opened(monitor->nsm, -1);
+	}
+
+	atomic_store_explicit(&shm->nsinks, nsinks, memory_order_release);
+
+	return nsmc_opened(monitor->nsm, 0);
+}
+
+static int
+_save(monitor_app_t *monitor)
+{
+	cJSON *root = _create_session(monitor);
+
+	if(!root)
+	{
+		return nsmc_saved(monitor->nsm, -1);
+	}
+
+	_save_session(root, monitor->path);
+	cJSON_Delete(root);
+
+	return nsmc_saved(monitor->nsm, 0);
+}
+
+static int
+_nsm_callback(void *data, const nsmc_event_t *ev)
+{
+	monitor_app_t *monitor = data;
+
+	switch(ev->type)
+	{
+		case NSMC_EVENT_TYPE_OPEN:
+			return _open(monitor, ev->open.path, ev->open.name, ev->open.id);
+		case NSMC_EVENT_TYPE_SAVE:
+			return _save(monitor);
+		case NSMC_EVENT_TYPE_SHOW:
+			return 1; // not supported
+		case NSMC_EVENT_TYPE_HIDE:
+			return 1; // not supported
+		case NSMC_EVENT_TYPE_SESSION_IS_LOADED:
+			return 0;
+
+		case NSMC_EVENT_TYPE_VISIBILITY:
+			return 0; // not supported
+		case NSMC_EVENT_TYPE_CAPABILITY:
+			return NSMC_CAPABILITY_MESSAGE
+				| NSMC_CAPABILITY_SWITCH ;
+
+		case NSMC_EVENT_TYPE_ERROR:
+			fprintf(stderr, "err: %s: (%i) %s", ev->error.request,
+				ev->error.code, ev->error.message);
+			return 0;
+		case NSMC_EVENT_TYPE_REPLY:
+			fprintf(stderr, "reply: %s", ev->reply.request);
+			return 0;
+
+		case NSMC_EVENT_TYPE_NONE:
+			// fall-through
+		case NSMC_EVENT_TYPE_MAX:
+			// fall-through
+		default:
+			return 1;
+	}
+
+	return 0;
 }
 
 int
@@ -213,11 +401,9 @@ main(int argc, char **argv)
 {
 	static monitor_app_t monitor;
 	const size_t total_size = sizeof(monitor_shm_t);
-
-	cJSON *root = NULL;
-	const char *server_name = NULL;
-	const char *session_id = NULL;
 	unsigned nsinks = 1;
+
+	monitor.server_name = NULL;
 	monitor.type = TYPE_AUDIO;
 
 	fprintf(stderr,
@@ -226,7 +412,7 @@ main(int argc, char **argv)
 		"Released under Artistic License 2.0 by Open Music Kontrollers\n", argv[0]);
 
 	int c;
-	while((c = getopt(argc, argv, "vhn:u:t:i:d:")) != -1)
+	while((c = getopt(argc, argv, "vhn:t:i:d:")) != -1)
 	{
 		switch(c)
 		{
@@ -257,19 +443,11 @@ main(int argc, char **argv)
 					"   [-h]                 print usage information\n"
 					"   [-t] port-type       port type (audio, midi)\n"
 					"   [-i] input-num       port input number (1-%i)\n"
-					"   [-n] server-name     connect to named JACK daemon\n"
-					"   [-u] client-uuid     client UUID for JACK session management\n"
-					"   [-d] session-dir     directory for JACK session management\n\n"
+					"   [-n] server-name     connect to named JACK daemon\n\n"
 					, argv[0], PORT_MAX);
 				return 0;
 			case 'n':
-				server_name = optarg;
-				break;
-			case 'u':
-				session_id = optarg;
-				break;
-			case 'd':
-				root = _load_session(optarg);
+				monitor.server_name = optarg;
 				break;
 			case 't':
 				monitor.type = _port_type_from_string(optarg);
@@ -277,81 +455,41 @@ main(int argc, char **argv)
 			case 'i':
 				nsinks = atoi(optarg);
 				if(nsinks > PORT_MAX)
+				{
 					nsinks = PORT_MAX;
+				}
 				break;
 			case '?':
-				if( (optopt == 'n') || (optopt == 'u') || (optopt == 't')
-						|| (optopt == 'i') || (optopt == 'd') )
+				if( (optopt == 'n') || (optopt == 't') || (optopt == 'i') )
+				{
 					fprintf(stderr, "Option `-%c' requires an argument.\n", optopt);
+				}
 				else if(isprint(optopt))
+				{
 					fprintf(stderr, "Unknown option `-%c'.\n", optopt);
+				}
 				else
+				{
 					fprintf(stderr, "Unknown option character `\\x%x'.\n", optopt);
+				}
 				return -1;
 			default:
 				return -1;
 		}
 	}
 
-	if(root)
+	signal(SIGTERM, _sig);
+	signal(SIGQUIT, _sig);
+	signal(SIGINT, _sig);
+
+	const char *exe = strrchr(argv[0], '/');
+	exe = exe ? exe + 1 : argv[0];
+	monitor.nsm = nsmc_new("PATCHMATRIX-MONITOR", exe, argv[optind], _nsm_callback, &monitor);
+
+	if(!monitor.nsm)
 	{
-		cJSON *type_node = cJSON_GetObjectItem(root, "type");
-		if(type_node && cJSON_IsString(type_node))
-		{
-			const char *port_type = type_node->valuestring;
-
-			monitor.type = _port_type_from_string(port_type);
-		}
-
-		cJSON *nsinks_node = cJSON_GetObjectItem(root, "nsinks");
-		if(nsinks_node && cJSON_IsNumber(nsinks_node))
-		{
-			nsinks = nsinks_node->valueint;
-		}
-
-		cJSON_Delete(root);
-	}
-
-	jack_options_t opts = JackNullOption | JackNoStartServer;
-	if(server_name)
-		opts |= JackServerName;
-	if(session_id)
-		opts |= JackSessionID;
-
-	jack_status_t status;
-	monitor.client = jack_client_open(PATCHMATRIX_MONITOR_ID, opts, &status,
-		server_name ? server_name : session_id,
-		server_name ? session_id : NULL);
-	if(!monitor.client)
-		return -1;
-
-	monitor.sample_rate_1 = 1.f / jack_get_sample_rate(monitor.client);
-
-	for(unsigned i = 0; i < nsinks; i++)
-	{
-		char buf [32];
-		snprintf(buf, 32, "sink_%02u", i + 1);
-
-		jack_port_t *jsink = jack_port_register(monitor.client, buf,
-			monitor.type == TYPE_AUDIO ? JACK_DEFAULT_AUDIO_TYPE : JACK_DEFAULT_MIDI_TYPE,
-			JackPortIsInput | JackPortIsTerminal, 0);
-
-#ifdef JACK_HAS_METADATA_API
-		jack_uuid_t uuid = jack_port_uuid(jsink);
-
-		snprintf(buf, 32, "%u", i);
-		jack_set_property(monitor.client, uuid, JACKEY_ORDER, buf, XSD__integer);
-
-		snprintf(buf, 32, "Sink %u", i + 1);
-		jack_set_property(monitor.client, uuid, JACK_METADATA_PRETTY_NAME, buf, "text/plain");
-#endif
-
-		if(monitor.type == TYPE_AUDIO)
-			monitor.audio.dBFSs[i] = -64.f;
-		else if(monitor.type == TYPE_MIDI)
-			monitor.midi.vels[i] = 0.f;
-
-		monitor.jsinks[i] = jsink;
+		fprintf(stderr, "[%s] nsmc_new failed\n", __func__);
+		return 1;
 	}
 
 	const char *client_name = jack_get_client_name(monitor.client);
@@ -363,28 +501,38 @@ main(int argc, char **argv)
 			if((monitor.shm = mmap(NULL, total_size, PROT_READ | PROT_WRITE,
 				MAP_SHARED, fd, 0)) != MAP_FAILED)
 			{
-				monitor.shm->nsinks = nsinks;
+				atomic_store_explicit(&monitor.shm->nsinks, nsinks, memory_order_release);
 
 				atomic_init(&monitor.shm->closing, false);
 
-				for(unsigned i = 0; i < nsinks; i++)
+				for(unsigned i = 0; i < PORT_MAX; i++)
+				{
 					atomic_init(&monitor.shm->jgains[i], 0);
+				}
 
 				if(sem_init(&monitor.shm->done, 1, 0) != -1)
 				{
-					jack_on_info_shutdown(monitor.client, _jack_on_info_shutdown_cb, &monitor);
-					jack_set_process_callback(monitor.client,
-						monitor.type == TYPE_AUDIO ? _audio_monitor_process : _midi_monitor_process,
-						&monitor);
-					//TODO CV
-					jack_set_session_callback(monitor.client, _jack_session_cb, &monitor);
+					struct timespec t1;
+					clock_gettime(CLOCK_REALTIME, &t1);
 
-					jack_activate(monitor.client);
+					while(!atomic_load_explicit(&done, memory_order_relaxed))
+					{
+						if(sem_timedwait(&monitor.shm->done, &t1) == -1)
+						{
+							if(errno == ETIMEDOUT)
+							{
+								t1.tv_sec += 1; // schedule next timeout
+							}
+						}
+						else
+						{
+							atomic_store_explicit(&done, true, memory_order_relaxed);
+						}
 
-					sem_wait(&monitor.shm->done);
+						nsmc_run(monitor.nsm);
+					}
+
 					atomic_store_explicit(&monitor.shm->closing, true, memory_order_relaxed);
-
-					jack_deactivate(monitor.client);
 
 					sem_destroy(&monitor.shm->done);
 				}
@@ -398,16 +546,12 @@ main(int argc, char **argv)
 		shm_unlink(client_name);
 	}
 
-	for(unsigned i = 0; i < nsinks; i++)
-	{
-#ifdef JACK_HAS_METADATA_API
-		jack_uuid_t uuid = jack_port_uuid(monitor.jsinks[i]);
-		jack_remove_properties(monitor.client, uuid);
-#endif
-		jack_port_unregister(monitor.client, monitor.jsinks[i]);
-	}
+	nsmc_free(monitor.nsm);
 
-	jack_client_close(monitor.client);
+	if(monitor.path)
+	{
+		free(monitor.path);
+	}
 
 	return 0;
 }

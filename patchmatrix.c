@@ -17,6 +17,9 @@
 
 #include <sys/wait.h>
 
+#define NSMC_IMPLEMENTATION
+#include <nsmc/nsmc.h>
+
 #include <patchmatrix.h>
 #include <patchmatrix_jack.h>
 #include <patchmatrix_nk.h>
@@ -26,6 +29,7 @@
 #include <nk_pugl/nk_pugl.h>
 
 static app_t app;
+static atomic_bool done = ATOMIC_VAR_INIT(false);
 
 static void
 _sig_interrupt(int signum)
@@ -45,6 +49,24 @@ _sig_child(int signum)
 	}
 }
 
+static int
+_nsm_callback(void *data, const nsmc_event_t *ev)
+{
+	app_t *app = data;
+	(void)app; //FIXME
+
+	switch(ev->type)
+	{
+		//FIXME
+		default:
+		{
+			// nothing to do
+		} break;
+	}
+
+	return 0;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -56,7 +78,6 @@ main(int argc, char **argv)
 	app.nxt_default = 30;
 
 	app.server_name = NULL;
-	app.session_id = NULL;
 
 	fprintf(stderr,
 		"%s "PATCHMATRIX_VERSION"\n"
@@ -64,7 +85,7 @@ main(int argc, char **argv)
 		"Released under Artistic License 2.0 by Open Music Kontrollers\n", argv[0]);
 
 	int c;
-	while((c = getopt(argc, argv, "vhn:u:d:")) != -1)
+	while((c = getopt(argc, argv, "vhn:d:")) != -1)
 	{
 		switch(c)
 		{
@@ -93,22 +114,14 @@ main(int argc, char **argv)
 					"OPTIONS\n"
 					"   [-v]                 print version and full license information\n"
 					"   [-h]                 print usage information\n"
-					"   [-n] server-name     connect to named JACK daemon\n"
-					"   [-u] client-uuid     client UUID for JACK session management\n"
-					"   [-d] session-dir     directory for JACK session management\n\n"
+					"   [-n] server-name     connect to named JACK daemon\n\n"
 					, argv[0]);
 				return 0;
 			case 'n':
 				app.server_name = optarg;
 				break;
-			case 'u':
-				app.session_id = optarg;
-				break;
-			case 'd':
-				app.root = _load_session(optarg);
-				break;
 			case '?':
-				if( (optopt == 'n') || (optopt == 'u') || (optopt == 'd') )
+				if( (optopt == 'n') )
 					fprintf(stderr, "Option `-%c' requires an argument.\n", optopt);
 				else if(isprint(optopt))
 					fprintf(stderr, "Unknown option `-%c'.\n", optopt);
@@ -119,6 +132,30 @@ main(int argc, char **argv)
 				return -1;
 		}
 	}
+
+	const char *exe = strrchr(argv[0], '/');
+	exe = exe ? exe + 1 : argv[0];
+	app.nsm = nsmc_new("PATCHMATRIX", exe, argv[optind], _nsm_callback, &app);
+
+	if(!app.nsm)
+	{
+		fprintf(stderr, "[%s] nsmc_new failed\n", __func__);
+		return 1;
+	}
+
+	while(!atomic_load(&done))
+	{
+		if(nsmc_managed())
+		{
+			nsmc_pollin(app.nsm, 1000);
+		}
+		else
+		{
+			sleep(1);
+		}
+	}
+
+	nsmc_free(app.nsm);
 
 	signal(SIGINT, _sig_interrupt);
 	signal(SIGCHLD, _sig_child);

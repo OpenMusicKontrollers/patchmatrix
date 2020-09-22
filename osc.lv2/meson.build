@@ -2,7 +2,7 @@ project('osc.lv2', 'c', default_options : [
 	'buildtype=release',
 	'warning_level=3',
 	'werror=true',
-	'b_lto=true',
+	'b_lto=false',
 	'c_std=c11'])
 
 version = run_command('cat', 'VERSION').stdout().strip()

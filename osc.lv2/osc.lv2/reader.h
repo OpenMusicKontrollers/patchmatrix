@@ -24,14 +24,25 @@
 
 #include <osc.lv2/osc.h>
 #include <osc.lv2/endian.h>
+#include <osc.lv2/util.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+
+typedef struct _LV2_OSC_Tree LV2_OSC_Tree;
 typedef struct _LV2_OSC_Reader LV2_OSC_Reader;
 typedef struct _LV2_OSC_Item LV2_OSC_Item;
 typedef struct _LV2_OSC_Arg LV2_OSC_Arg;
+typedef void (*LV2_OSC_Branch)(LV2_OSC_Reader *reader, LV2_OSC_Arg *arg,
+	const LV2_OSC_Tree *tree, void *data);
+
+struct _LV2_OSC_Tree {
+	const char *name;
+	const LV2_OSC_Tree *trees;
+	LV2_OSC_Branch branch;
+};
 
 struct _LV2_OSC_Reader {
 	const uint8_t *buf;
@@ -562,6 +573,53 @@ static inline bool
 lv2_osc_reader_is_message(LV2_OSC_Reader *reader)
 {
 	return reader->ptr[0] == '/'; //FIXME check path
+}
+
+static inline void
+_lv2_osc_trees_internal(LV2_OSC_Reader *reader, const char *path, const char *from,
+	LV2_OSC_Arg *arg, const LV2_OSC_Tree *trees, void *data)
+{
+	const char *ptr = strchr(from, '/');
+	const char *pattern = strpbrk(from, "*?[]{}/");
+	const bool has_pattern = pattern && (pattern[0] != '/');
+	(void)has_pattern; //FIXME
+
+	const size_t len = ptr
+		? (size_t)(ptr - from)
+		: strlen(from);
+
+	for(const LV2_OSC_Tree *tree = trees; tree && tree->name; tree++)
+	{
+		if(lv2_osc_pattern_match(from, tree->name, len))
+		{
+			if(tree->trees && ptr)
+			{
+				if(tree->branch)
+				{
+					LV2_OSC_Reader reader_clone = *reader;
+					tree->branch(&reader_clone, arg, tree, data);
+				}
+
+				_lv2_osc_trees_internal(reader, path, &ptr[1], arg, tree->trees, data);
+			}
+			else if(tree->branch && !ptr)
+			{
+				LV2_OSC_Reader reader_clone = *reader;
+				tree->branch(&reader_clone, arg, tree, data);
+			}
+		}
+	}
+}
+
+static inline void
+lv2_osc_reader_match(LV2_OSC_Reader *reader, size_t len,
+	const LV2_OSC_Tree *trees, void *data)
+{
+	LV2_OSC_Arg *arg = OSC_READER_MESSAGE_BEGIN(reader, len);
+	const char *path = arg->path;
+	const char *from = &path[1];
+
+	_lv2_osc_trees_internal(reader, path, from, arg, trees, data);
 }
 
 #ifdef __cplusplus
