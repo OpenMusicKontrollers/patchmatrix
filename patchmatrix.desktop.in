@@ -1,6 +1,7 @@
 [Desktop Entry]
 Name=PatchMatrix
 Comment=Connect JACK clients together
+Comment[fr]=Connecter les clients JACK entre eux
 Exec=@prefix@/@bindir@/patchmatrix
 Terminal=false
 Icon=patchmatrix
